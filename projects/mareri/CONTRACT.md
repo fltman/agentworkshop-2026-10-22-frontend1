@@ -80,3 +80,7 @@ Returns one journey with `origin`, `target`, `startTime`, `arriveTime`, `totalMi
 ## Frontend: journey card and reset
 
 The hover/long-press journey card is a fixed panel on the right (top on mobile) and stays until the next hover, Esc, the close button or Reset. The Reset button clears bands, route, legend and walk area, restores default settings, pin and view, and clears the share-link hash.
+
+## Arrive-by on streets
+
+`POST /t/mareri/isochrone` accepts `arriveBy: true` (same contract as marlin v1.3: `startTime`/`deadline` is the deadline, bands are how long before it you must leave, `meta.deadline`). Walking to and from the pin and between stops follows the street graph, like the forward search. The tile now sends arrive-by here; marlin is only the fallback when the street engine is down. The hover journey stays off in arrive-by mode (it is forward only).

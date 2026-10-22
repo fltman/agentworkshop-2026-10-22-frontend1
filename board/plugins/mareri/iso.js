@@ -198,6 +198,93 @@ function search(net, q, seeds, table, trace) {
   return { arrival: best, reached, originStops, rounds, recs, bestLab };
 }
 
+/**
+ * Arrive-by: the time mirror of `search`. latest[i] = the latest time you can be at stop i and still
+ * reach the pin by the deadline. Same structure as marlin's searchReverse, but with explicit seeds
+ * (street walks from the pin, as latest times) and the street transfer table.
+ */
+function arrOrderDesc(net) {
+  if (net._arrOrderDesc) return net._arrOrderDesc;
+  const { arr, dep, connectionCount } = net;
+  const order = Array.from({ length: connectionCount }, (_, i) => i);
+  order.sort((a, b) => (arr[b] - arr[a]) || (dep[b] - dep[a]));
+  net._arrOrderDesc = Int32Array.from(order);
+  return net._arrOrderDesc;
+}
+
+function searchReverse(net, q, seeds, table) {
+  const { maxTravelSeconds, maxWaitSeconds, maxTransfers, allowedModes, transferSeconds } = q;
+  const deadline = q.startSec;
+  const NEG = -1;
+  const stopCount = net.stops.length;
+  const cutoff = deadline - maxTravelSeconds;
+  const best = new Int32Array(stopCount).fill(NEG);
+  const prev = new Int32Array(stopCount).fill(NEG);
+
+  let originStops = 0;
+  for (const [i, latest] of seeds) {
+    if (latest < cutoff) continue;
+    if (best[i] === NEG) originStops++;
+    if (latest > best[i]) { best[i] = latest; prev[i] = latest; }
+  }
+  if (originStops === 0) return { latest: best, reached: 0, originStops: 0, rounds: 0 };
+
+  const modeAllowed = new Uint8Array(net.modeNames.length);
+  for (let i = 0; i < net.modeNames.length; i++) modeAllowed[i] = allowedModes.indexOf(net.modeNames[i]) >= 0 ? 1 : 0;
+
+  const { from, to, dep, arr, trip, mode, connectionCount } = net;
+  const { transferOffset, transferTo, transferSec } = table;
+  const order = arrOrderDesc(net);
+  const startPos = engine.arrUpperBoundDesc(order, arr, deadline, connectionCount);
+  const detrained = new Uint8Array(net.tripCount);
+  let rounds = 0;
+
+  for (let leg = 1; leg <= maxTransfers + 1; leg++) {
+    const cur = prev.slice();
+    detrained.fill(0);
+    let improved = false;
+    rounds++;
+    for (let idx = startPos; idx < connectionCount; idx++) {
+      const c = order[idx];
+      if (arr[c] < cutoff) break;
+      if (!modeAllowed[mode[c]]) continue;
+      const t = trip[c];
+      if (!detrained[t]) {
+        const ready = prev[to[c]];
+        if (ready === NEG || ready < arr[c]) continue;
+        if (leg > 1 && ready - arr[c] > maxWaitSeconds) continue;
+        detrained[t] = 1;
+      }
+      const d = dep[c];
+      if (d >= cutoff && d > cur[from[c]]) { cur[from[c]] = d; improved = true; }
+    }
+    if (!improved) break;
+
+    if (transferSeconds > 0) {
+      for (let pass = 0; pass < 3; pass++) {
+        let walked = false;
+        for (let s = 0; s < stopCount; s++) {
+          for (let k = transferOffset[s]; k < transferOffset[s + 1]; k++) {
+            if (transferSec[k] > transferSeconds) continue;
+            const v = transferTo[k];
+            if (cur[v] === NEG) continue;
+            const cand = cur[v] - transferSec[k];
+            if (cand >= cutoff && cand > cur[s]) { cur[s] = cand; walked = true; }
+          }
+        }
+        if (!walked) break;
+      }
+    }
+    for (let i = 0; i < stopCount; i++) {
+      if (cur[i] > best[i]) best[i] = cur[i];
+      prev[i] = cur[i];
+    }
+  }
+  let reached = 0;
+  for (let i = 0; i < stopCount; i++) if (best[i] !== NEG) reached++;
+  return { latest: best, reached, originStops, rounds };
+}
+
 /** Pin -> stops: along streets where the pin and the stop snap, straight line otherwise. */
 function accessSeeds(net, g, sn, q) {
   const seeds = new Map();
@@ -435,9 +522,23 @@ function compute(net, q, helpers) {
   const cutoff = q.startSec + q.maxTravelSeconds;
   const sn = snapStops(net, g);
 
-  const access = accessSeeds(net, g, sn, q);
+  // Arrive-by: q.startSec is the deadline. The pin is the destination, so its street walk to the stops
+  // uses the destination walking budget (as marlin does), and the scan runs backward in time.
+  const arriveBy = !!q.arriveBy;
+  const pinWalkSec = arriveBy ? q.egressSeconds : q.accessSeconds;
+  const access = accessSeeds(net, g, sn, arriveBy ? Object.assign({}, q, { accessSeconds: q.egressSeconds }) : q);
   const table = transfersFor(net, g, sn, q.transferSeconds, v);
-  const result = search(net, q, Array.from(access.seeds), table);
+  let result;
+  if (arriveBy) {
+    const rev = searchReverse(net, q, Array.from(access.seeds, ([i, t]) => [i, 2 * q.startSec - t]), table);
+    // Re-express as "time at which you would arrive" so the raster code below is shared:
+    // startSec + travel time, where travel time = deadline - latest departure from the stop.
+    const arrival = new Int32Array(rev.latest.length);
+    for (let i = 0; i < arrival.length; i++) arrival[i] = rev.latest[i] === -1 ? INF : 2 * q.startSec - rev.latest[i];
+    result = { arrival, reached: rev.reached, originStops: rev.originStops, rounds: rev.rounds };
+  } else {
+    result = search(net, q, Array.from(access.seeds), table);
+  }
   if (result.originStops === 0) throw new helpers.ApiError('no_stops_near_origin');
   if (result.reached === 0) throw new helpers.ApiError('nothing_reachable');
 
@@ -478,9 +579,9 @@ function compute(net, q, helpers) {
     }
   }
   if (access.pin) {
-    seeds.push({ node: access.pin.node, t: q.startSec + access.pin.metres / v, o: q.startSec + q.accessSeconds - q.egressSeconds });
+    seeds.push({ node: access.pin.node, t: q.startSec + access.pin.metres / v, o: q.startSec + pinWalkSec - q.egressSeconds });
   } else {
-    disc(discGrid, q.origin.lat, q.origin.lon, q.startSec, q.accessSeconds * v, v, cutoff);
+    disc(discGrid, q.origin.lat, q.origin.lon, q.startSec, pinWalkSec * v, v, cutoff);
   }
 
   const { off, to, len, lat, lon } = g;

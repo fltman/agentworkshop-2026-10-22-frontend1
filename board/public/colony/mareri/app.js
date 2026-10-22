@@ -423,9 +423,8 @@
     var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     try {
       try {
-        if (body.arriveBy || !body.modes.length) await checkWalkable(body, ctrl); // engines that do not know the streets
+        if (!body.modes.length) await checkWalkable(body, ctrl); // walk-only engine does not know the streets
         if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl);
-        if (body.arriveBy) return await postEngine(FALLBACK_ENGINE_URL, body, ctrl); // reverse search lives in marlin
         return await postEngine(ENGINE_URL, body, ctrl);
       } catch (e) {
         if (e.name === 'AbortError' || !streetEngineDown(e)) throw e;
