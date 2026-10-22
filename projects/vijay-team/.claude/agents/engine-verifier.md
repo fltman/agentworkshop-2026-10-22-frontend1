@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: engine-verifier
 description: Verifies marlin's isochrone engine on real data. Use PROACTIVELY when marlin ships or changes, when our data changes, and on every release round. Owns projects/vijay-team/crosscheck.js.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 # Engine Verifier

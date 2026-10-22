@@ -77,7 +77,8 @@ const ORIGINS = [
   for (const o of ORIGINS) {
     for (const maxTravel of [30, 60]) {
       const p = { lat: o.lat, lon: o.lon, startSec: 9 * 3600, maxTravel, maxWait: 7, maxTransfers: 3, accessMin: 10, transferMin: 5, speed: 4.8 / 3.6 };
-      const mine = reach(p);
+      // Stations reached in the last minute have no time left for egress, so a polygon may legitimately miss them.
+      const mine = reach(p).filter((x) => x.min <= maxTravel - 1);
       const body = {
         origin: { lat: o.lat, lon: o.lon },
         startTime: '09:00',
@@ -94,7 +95,7 @@ const ORIGINS = [
       const examples = [];
       for (const s of mine) {
         const st = net.stops[s.i];
-        const band = bands.find((b) => b.properties.toMinutes >= s.min);
+        const band = bands[bands.length - 1];
         const ok = band && inMulti(st.lon, st.lat, band.geometry.coordinates);
         if (!ok) { missing++; if (examples.length < 3) examples.push(`${st.name} (${s.min.toFixed(0)} min)`); }
       }

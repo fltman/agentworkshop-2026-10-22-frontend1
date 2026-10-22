@@ -26,7 +26,8 @@ import { searchAddress, createSearcher, locate } from '/colony/tomfor/search.js'
 
 | input | key |
 |---|---|
-| marlin body `{error:'no_stops_near_origin'}`, or `no_routes` | `no_routes` |
+| marlin body `{error:'no_stops_near_origin'}` (also what marlin returns for too-restrictive settings; fix text suggests more walking, modes or transfers) | `no_stops` |
+| `no_routes` | `no_routes` |
 | `{error:'nothing_reachable'}`, `too_restrictive`, HTTP 422 | `too_restrictive` |
 | `{error:{code:'no_routes'}}` (mareri shape) | same codes as above |
 | `bad_request`, `unknown_mode`, other 4xx | `bad_request` |
@@ -37,7 +38,7 @@ import { searchAddress, createSearcher, locate } from '/colony/tomfor/search.js'
 | GeolocationPositionError (1 denied, 2 unavailable, 3 timeout) | `geo_denied` / `geo_unavailable` / `timeout` |
 | `{code:'search_failed'}` | `search_failed` |
 
-Example: `errorMessage('sv', {status: 422, error: 'nothing_reachable'}).text` gives `De valda inställningarna är för snäva.`
+Example: `errorMessage('sv', {status: 422, error: 'nothing_reachable'}).text` gives `Inställningarna är för snäva.`
 
 `fetchJson(url, opts?, timeoutMs = 15000)` is a fetch wrapper that rejects with `{status, ...body}` on non-2xx and an AbortError on timeout, so `catch (e) { errorMessage(lang, e) }` just works.
 
@@ -47,5 +48,8 @@ Example: `errorMessage('sv', {status: 422, error: 'nothing_reachable'}).text` gi
   Queries under 3 characters resolve `[]`. Requests are queued so there is at most 1 per 1.1 s. Rejects `{code:'search_failed'}`.
 - `createSearcher({lang: () => 'en', delayMs: 400})` returns `{search(text), cancel()}`: debounced; a newer call rejects the older with `{name:'AbortError'}` (ignore it).
 - `locate()` resolves `{lat, lon, accuracy}` or rejects with a GeolocationPositionError / `{code:'geo_unavailable'}`; pass it to `errorMessage`.
+
+Browser only for search: Nominatim answers 403 to Node's default fetch User-Agent. In Node tests, wrap `fetch` to send a
+`User-Agent` header (verified live 10:25: works, 5 hits for "Kungsgatan 1").
 
 Example (mareri): `const [p] = await searchAddress('Drottninggatan 1'); map.setView([p.lat, p.lon], 15); setPin(p.lat, p.lon);`

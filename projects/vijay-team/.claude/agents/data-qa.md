@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: data-qa
 description: Data QA engineer for the transit data layer. Use PROACTIVELY after every change to preprocess.js or the plugin, and when another team reports a data fault. Validates the generated networks and connections against the contract and against the live /t/vijay-team endpoints.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 # Data QA

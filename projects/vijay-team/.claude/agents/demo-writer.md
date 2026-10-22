@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: demo-writer
 description: Keeps a requirements checklist against PROJEKT.md for the whole group and writes the demo script. Use before the end-of-day demo and whenever a team's module goes live.
 tools: Read, Grep, Glob, Bash, Edit, Write
-model: sonnet
 ---
 
 # Demo Writer

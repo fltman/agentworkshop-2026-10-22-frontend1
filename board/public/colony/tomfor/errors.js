@@ -3,7 +3,7 @@ import { t } from './strings.js';
 // Maps marlin/mareri error codes (and client-side failures) to a strings key.
 const CODE_TO_KEY = {
   no_routes: 'no_routes',
-  no_stops_near_origin: 'no_routes',
+  no_stops_near_origin: 'no_stops',
   nothing_reachable: 'too_restrictive',
   too_restrictive: 'too_restrictive',
   bad_request: 'bad_request',

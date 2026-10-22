@@ -1,4 +1,6 @@
 import { createSettingsPanel, toEngineRequest, BANDS } from "./settings.js";
+import { errorMessage, fetchJson } from "../tomfor/errors.js";
+import { searchAddress, locate } from "../tomfor/search.js";
 
 const STOCKHOLM = [59.3293, 18.0686];
 const ENGINE_URL = "/t/marlin/isochrone";
@@ -8,11 +10,8 @@ const TEXT = {
   en: {
     search: "Search address or place",
     go: "Search",
+    locate: "Use my location",
     notFound: "No place found.",
-    searchFail: "Search failed. Check your connection.",
-    offline: "You appear to be offline. Check your connection and try again.",
-    timeout: "The calculation took too long. Try a shorter travel time or fewer transport types.",
-    server: "The service failed. Please try again in a moment.",
     noRoutes: "No public transport reachable with these options. Try more walking, waiting or travel time.",
     stats: (n, ms) => `${n} stops reached, ${ms} ms`,
     fixture: "Note: the engine is running on test data.",
@@ -20,11 +19,8 @@ const TEXT = {
   sv: {
     search: "Sök adress eller plats",
     go: "Sök",
+    locate: "Använd min position",
     notFound: "Ingen plats hittades.",
-    searchFail: "Sökningen misslyckades. Kontrollera anslutningen.",
-    offline: "Du verkar vara offline. Kontrollera anslutningen och försök igen.",
-    timeout: "Beräkningen tog för lång tid. Prova kortare restid eller färre färdmedel.",
-    server: "Tjänsten misslyckades. Försök igen om en stund.",
     noRoutes: "Ingen kollektivtrafik nås med dessa val. Prova mer gång, väntetid eller restid.",
     stats: (n, ms) => `${n} hållplatser nåddes, ${ms} ms`,
     fixture: "Obs: motorn kör på testdata.",
@@ -47,11 +43,14 @@ const statusEl = document.getElementById("status");
 const searchInput = document.getElementById("q");
 const searchBtn = document.getElementById("go");
 const searchMsg = document.getElementById("searchmsg");
+const locateBtn = document.getElementById("loc");
 
 function applyLang() {
   document.documentElement.lang = lang;
   searchInput.placeholder = tr("search");
   searchBtn.textContent = tr("go");
+  locateBtn.setAttribute("aria-label", tr("locate"));
+  locateBtn.title = tr("locate");
   statusEl.textContent = "";
   searchMsg.textContent = "";
 }
@@ -88,35 +87,25 @@ async function runUpdate(settings) {
   statusEl.textContent = "";
   statusEl.className = "";
   panel.setBusy(true);
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(ENGINE_URL, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(toEngineRequest(settings)),
-      signal: ctrl.signal,
-    });
-    let body = null;
-    try {
-      body = await res.json();
-    } catch {
-      /* non-JSON response, handled below */
-    }
-    if (!res.ok) {
-      if (body && body.message) panel.setError(lang === "sv" ? body.message_sv || body.message : body.message);
-      else panel.setError(tr("server"));
-      return;
-    }
-    drawBands(body);
+    const fc = await fetchJson(
+      ENGINE_URL,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(toEngineRequest(settings)) },
+      TIMEOUT_MS
+    );
+    drawBands(fc);
   } catch (err) {
-    if (err.name === "AbortError") panel.setError(tr("timeout"));
-    else if (!navigator.onLine) panel.setError(tr("offline"));
-    else panel.setError(tr("server"));
+    panel.setError(engineError(err));
   } finally {
-    clearTimeout(timer);
     panel.setBusy(false);
   }
+}
+
+function engineError(err) {
+  if (err && err.status && (err.message || err.message_sv) && err.status !== 422) {
+    return lang === "sv" ? err.message_sv || err.message : err.message;
+  }
+  return errorMessage(lang, err).message;
 }
 
 function drawBands(fc) {
@@ -149,21 +138,26 @@ async function doSearch() {
   searchMsg.textContent = "";
   if (!q) return;
   try {
-    const url =
-      "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=se" +
-      "&viewbox=17.6,59.5,18.5,59.1&accept-language=" + lang + "&q=" + encodeURIComponent(q);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("search");
-    const hits = await res.json();
+    const hits = await searchAddress(q, { lang, limit: 1 });
     if (!hits.length) {
       searchMsg.textContent = tr("notFound");
       return;
     }
-    setOrigin(Number(hits[0].lat), Number(hits[0].lon), true);
-  } catch {
-    searchMsg.textContent = tr("searchFail");
+    setOrigin(hits[0].lat, hits[0].lon, true);
+  } catch (e) {
+    searchMsg.textContent = errorMessage(lang, e).message;
   }
 }
+
+locateBtn.addEventListener("click", async () => {
+  searchMsg.textContent = "";
+  try {
+    const p = await locate();
+    setOrigin(p.lat, p.lon, true);
+  } catch (e) {
+    searchMsg.textContent = errorMessage(lang, e).message;
+  }
+});
 
 searchBtn.addEventListener("click", doSearch);
 searchInput.addEventListener("keydown", (e) => {

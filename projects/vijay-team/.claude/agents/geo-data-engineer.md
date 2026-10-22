@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: geo-data-engineer
 description: Builds map-ready transit data from the SL GTFS feed (line shapes, route lists, geometry). Use when another team needs geographic data our module does not offer yet, such as line geometry for the map.
 tools: Read, Grep, Glob, Bash, Edit, Write
-model: sonnet
 ---
 
 # Geo Data Engineer

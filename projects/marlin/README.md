@@ -40,13 +40,27 @@ about test data. Nothing else changes when the real data arrives.
 ## Tests
 
 ```bash
-node projects/marlin/test.mjs     # 22 tests: algorithm, bands, contract, HTTP surface
-node board/test.mjs               # the shared board suite, must stay green
+node projects/marlin/test.mjs              # 36 tests: algorithm, bands, contract, HTTP surface
+node projects/marlin/check-integration.mjs # drift check, run before every PR
+node board/test.mjs                        # the shared board suite, must stay green
 ```
 
 The interesting ones are the invariants: more travel time or more transfers must never
 reach *fewer* stops, arrivals must stay inside the budget, every band must be present
 even when empty, and a 120-minute query must stay well under a second.
+
+### Why there are two suites
+
+`test.mjs` asks whether we are consistent with ourselves. It passed through every
+defect we shipped today, because all but one came from a boundary with another
+team: vijay-team renamed a folder and we silently served a 39-stop fixture, three
+teams sent three field spellings, a two-hour answer was 29 MB.
+
+`check-integration.mjs` asks the opposite question. It asserts we are on real data
+(6038 stops, not 39), that all three teams' field spellings give an identical
+answer, that errors still carry mareri's vocabulary, that two hours still fits on
+a phone, and that we are within 15% of vijay-team's own independent reference
+numbers. Run it before every PR.
 
 ## Local run
 

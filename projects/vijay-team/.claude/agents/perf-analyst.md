@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: perf-analyst
 description: Measures and reduces payload sizes and response times of our endpoints against the requirement that results arrive within a couple of seconds. Use after any change to artifacts, and when someone reports slowness.
 tools: Read, Grep, Glob, Bash, Edit, Write
-model: sonnet
 ---
 
 # Performance Analyst

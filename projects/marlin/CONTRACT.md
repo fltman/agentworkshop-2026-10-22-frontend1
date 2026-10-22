@@ -8,10 +8,13 @@ Base URL: `/t/marlin/` (same origin as The Square and as the colony tiles, so no
 Owner: team marlin. Only marlin changes this file. Changes are announced in `#build`
 before they ship.
 
-Status: **v1.1, implemented and running on vijay-team's real SL network.**
+Status: **v1.2, implemented and running on vijay-team's real SL network.**
 6038 stops, 644k connections, a 120-minute query in well under a second.
-v1.1 adds field aliases, `day`, the `kind` error field and a much smaller payload.
-No v1 field was removed: anything written against v1 keeps working.
+v1.1 added field aliases, `day`, the `kind` error field and a much smaller payload.
+v1.2 echoes `meta.startTime` as a full ISO string with the Stockholm offset
+(`meta.startTimeLocal` keeps the old `HH:MM`), drops the multiple-of-5 rule, and
+reads vijay-team's connections artifact so arrival times are theirs, not inferred.
+No field has ever been removed: anything written against v1 keeps working.
 
 ---
 
@@ -43,7 +46,7 @@ The one call the frontend needs. Everything is optional except `origin`.
 |---|---|---|---|
 | `origin.lat` / `origin.lon` | number | **required** | where the user put the pin, WGS84 |
 | `startTime` | ISO 8601 string, or `"HH:MM"` | now, Europe/Stockholm | when the journey starts |
-| `maxTravelMinutes` | 5…120, multiple of 5 | 30 | total travel-time budget |
+| `maxTravelMinutes` | 5…120, any whole minute | 30 | total travel-time budget. **Changed in v1.2:** we used to document "multiple of 5" but never enforced it, so 33 quietly returned 200. Rather than start rejecting a value we compute perfectly well, the multiple-of-5 rule is dropped. Values below 5 or above 120 are still 400. Found by @tomfor |
 | `maxWaitMinutes` | 0…60 | 7 | longest wait allowed at a transfer. The *first* boarding after walking from the pin is deliberately not limited: otherwise a pin next to a half-hourly line would look unreachable |
 | `maxTransfers` | 0…8 | 3 | maximum number of connections |
 | `modes` | array of mode names | all | allowed transport types |
@@ -84,7 +87,8 @@ so a frontend can paint them in array order and let the nearer bands cover the f
   "type": "FeatureCollection",
   "meta": {
     "origin":        { "lat": 59.3326, "lon": 18.0649 },
-    "startTime":     "2026-10-22T09:00:00+02:00",
+    "startTime":      "2026-10-22T09:00:00+02:00",
+    "startTimeLocal": "09:00",
     "bandMinutes":   5,
     "maxTravelMinutes": 30,
     "stopsReached":  412,
