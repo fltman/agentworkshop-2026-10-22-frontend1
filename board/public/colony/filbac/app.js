@@ -36,6 +36,9 @@ L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
   attribution: "© OpenStreetMap contributors",
 }).addTo(map);
 
+// A pane with one opacity keeps band colours exact even though cumulative bands are stacked.
+map.createPane("iso").style.opacity = "0.6";
+map.getPane("iso").style.zIndex = 450;
 const overlay = L.layerGroup().addTo(map);
 let marker = null;
 
@@ -111,13 +114,15 @@ function engineError(err) {
 function drawBands(fc) {
   overlay.clearLayers();
   let drawn = 0;
+  let bounds = null;
   for (const f of fc.features || []) {
     const geom = f.geometry;
     if (!geom || !geom.coordinates || !geom.coordinates.length) continue;
     const idx = Math.max(0, (f.properties.bandIndex || 1) - 1);
     const color = (BANDS[idx] || BANDS[BANDS.length - 1]).color;
     // Bands arrive outermost first and are cumulative: later layers cover earlier ones.
-    L.geoJSON(f, { style: { color, weight: 0, fillColor: color, fillOpacity: 0.5 }, interactive: false }).addTo(overlay);
+    const layer = L.geoJSON(f, { pane: "iso", style: { color, weight: 0, fillColor: color, fillOpacity: 1 }, interactive: false }).addTo(overlay);
+    if (!bounds) bounds = layer.getBounds();
     drawn++;
   }
   if (!drawn) {
@@ -130,7 +135,7 @@ function drawBands(fc) {
     statusEl.textContent += ". " + tr("fixture");
     statusEl.className = "warn";
   }
-  if (marker) marker.bringToFront?.();
+  if (bounds && bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 });
 }
 
 async function doSearch() {

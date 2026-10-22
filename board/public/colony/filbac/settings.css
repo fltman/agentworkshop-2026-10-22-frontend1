@@ -21,3 +21,6 @@
 .iso-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; }
 .iso-swatch { display: inline-flex; align-items: center; gap: 4px; }
 .iso-swatch i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.iso-settings input, .iso-settings select { min-width: 0; max-width: 100%; }
+.iso-settings input[type=datetime-local] { width: 100%; }
+.iso-update { position: sticky; bottom: 8px; box-shadow: 0 2px 8px #0003; }
