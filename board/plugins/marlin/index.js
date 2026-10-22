@@ -216,6 +216,18 @@ function formatISO(date, startSec) {
     formatHHMM(startSec) + ':00' + offset;
 }
 
+/** `YYYY-MM-DD` in Europe/Stockholm, for comparing a request against vijay-team's
+ *  feed validity window (vijay-team's report: a date outside it is silently
+ *  answered as a normal day - this is the field that lets us warn instead). */
+function localDateISO(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Stockholm',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type).value;
+  return get('year') + '-' + get('month') + '-' + get('day');
+}
+
 function localSeconds(date) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Europe/Stockholm',
@@ -339,6 +351,7 @@ function parseRequest(body) {
     bandMinutes,
     maxTravelMinutes,
     startISO: formatISO(startDate, startSec),
+    startDateISO: localDateISO(startDate),
     excludeRouteNames: excludeRoutes,
     excludeStopNames: excludeStops,
   };
@@ -375,6 +388,25 @@ function resolveExcludeStops(net, names) {
   return set.size ? set : null;
 }
 
+/**
+ * vijay-team's report (#build post 521): a startTime whose calendar date
+ * falls outside their feed's validFrom..validTo window was silently answered
+ * using the generic weekday/saturday/sunday pattern, with nothing telling the
+ * caller it isn't real timetabled service for that date. Not an error - the
+ * generic pattern is still the best answer we have - but worth a warning.
+ * feed.json lives beside vijay-team's network artifacts; missing on the
+ * fixture, so this is a no-op there.
+ */
+function feedWarnings(q) {
+  if (!state.store) return [];
+  const feed = state.store.feed();
+  if (!feed || !feed.validFrom || !feed.validTo) return [];
+  if (q.startDateISO >= feed.validFrom && q.startDateISO <= feed.validTo) return [];
+  return ['startTime (' + q.startDateISO + ') is outside the loaded timetable (' +
+    feed.validFrom + ' to ' + feed.validTo + '); the result uses the generic ' +
+    q.dayType + ' pattern, not confirmed service for this date.'];
+}
+
 function cacheKey(q) {
   return [
     q.origin.lat.toFixed(5), q.origin.lon.toFixed(5), q.dayType, q.startSec, q.arriveBy,
@@ -390,12 +422,30 @@ function cacheKey(q) {
 function computeIsochrone(q) {
   if (!state.store) throw new ApiError('network_not_loaded');
 
+  // vijay-team's report: a startTime/date outside their feed's validFrom..
+  // validTo window was silently answered as a generic day-of-week pattern,
+  // with no sign the result isn't real service for that date. Not an error -
+  // the generic pattern is still a reasonable answer - but worth a warning.
+  const warnings = feedWarnings(q);
+
   const key = cacheKey(q);
   const hit = state.cache.get(key);
   if (hit) {
     state.cache.delete(key);
     state.cache.set(key, hit);
-    return Object.assign({}, hit, { cached: true });
+    // Bug vijay-team found: the cache key is keyed on day type + time-of-day,
+    // not the calendar date (correct - the engine answer only depends on
+    // those), but the cached meta.startTime/deadline carried the *first*
+    // request's date verbatim, so a later request for a different date with
+    // the same weekday+time got back someone else's date. Patch the
+    // date-dependent fields with this request's own values on every hit.
+    const meta = Object.assign({}, hit.meta, {
+      startTime: q.arriveBy ? undefined : q.startISO,
+      deadline: q.arriveBy ? q.startISO : undefined,
+      startTimeLocal: formatHHMM(q.startSec),
+      warnings: warnings.length ? warnings : undefined,
+    });
+    return Object.assign({}, hit, { meta, cached: true });
   }
 
   const net = state.store.get(q.dayType);
@@ -464,6 +514,7 @@ function computeIsochrone(q) {
       source: net.source,
       algorithm: q.arriveBy ? 'rounds+scan (reversed)' : 'rounds+scan',
       cumulativeBands: true,
+      warnings: warnings.length ? warnings : undefined,
       excludedRoutes: q.excludeRouteNames.length
         ? { requested: q.excludeRouteNames.length, matched: excludeRoutes ? excludeRoutes.size : 0 }
         : undefined,

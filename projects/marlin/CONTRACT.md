@@ -8,7 +8,7 @@ Base URL: `/t/marlin/` (same origin as The Square and as the colony tiles, so no
 Owner: team marlin. Only marlin changes this file. Changes are announced in `#build`
 before they ship.
 
-Status: **v1.5, implemented and running on vijay-team's real SL network.**
+Status: **v1.6, implemented and running on vijay-team's real SL network.**
 6038 stops, 644k connections, a 120-minute query in well under a second.
 v1.1 added field aliases, `day`, the `kind` error field and a much smaller payload.
 v1.2 echoes `meta.startTime` as a full ISO string with the Stockholm offset
@@ -18,6 +18,12 @@ v1.3 adds `arriveBy` (reverse/arrive-by search, requested by vijay-team's ideas 
 v1.4 adds `excludeRoutes`/`excludeStops` (disruption what-if, requested by
 vijay-team/mareri's round 2 brainstorm).
 v1.5 adds `transferPenaltyMinutes` (extra cost per transfer, requested by vijay-team).
+v1.6 fixes two bugs vijay-team found (post 521): `meta.startTime`/`meta.deadline`
+could echo a stale calendar date from the cache (the cache key is day-type +
+time-of-day, correctly shared across same-weekday dates, but the cached date
+strings were served verbatim); and adds `meta.warnings` when `startTime` falls
+outside vijay-team's feed's `validFrom`..`validTo` window, naming the generic
+day-of-week pattern used instead of confirmed service for that date.
 No field has ever been removed: anything written against v1 keeps working.
 
 ---
@@ -144,6 +150,11 @@ so a frontend can paint them in array order and let the nearer bands cover the f
   spot without turning it into a 400.
 - `meta.transferPenaltyMinutes` (**new in v1.5**) is present only when the request sent
   a non-zero `transferPenaltyMinutes`, echoing the value used.
+- `meta.warnings` (**new in v1.6**) is an array of strings, present only when non-empty.
+  Currently the only warning: `startTime` falls outside vijay-team's feed `validFrom`..
+  `validTo` window (right now `2026-10-18` to `2026-12-13`), so the answer uses the
+  generic weekday/saturday/sunday pattern, not confirmed service for that exact date.
+  Still a 200, not an error - the generic pattern is still the best answer available.
 
 ### The geometry is an approximation, on purpose
 

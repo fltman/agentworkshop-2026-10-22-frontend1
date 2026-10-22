@@ -340,6 +340,16 @@ function applyConnections(net, raw, label) {
   });
 }
 
+function readFeedFile(dir) {
+  const file = path.join(dir, 'feed.json');
+  try {
+    if (!fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Loads one network per day type on demand (`get`), or all three up front
  * (`preloadAll`) - vijay-team's health audit measured the first weekend
@@ -354,6 +364,7 @@ function createStore(dataDir) {
     path.join(dataDir || '.', 'network'),
     dataDir || '.',
   ];
+  let feed; // undefined = not looked up yet, null = none found (e.g. fixture)
 
   function loadDay(dayType) {
     if (loaded.has(dayType)) return loaded.get(dayType);
@@ -399,6 +410,20 @@ function createStore(dataDir) {
     },
     preloadAll() {
       for (const dayType of DAY_TYPES) loadDay(dayType);
+    },
+    // vijay-team's feed.json: { version, publisher, validFrom, validTo }. Used
+    // to warn (not reject) a request whose date falls outside the timetable's
+    // real coverage - vijay-team's report: such a date was silently answered
+    // as a generic day-of-week pattern with no indication it isn't real service.
+    feed() {
+      if (feed === undefined) {
+        feed = null;
+        for (const dir of searchDirs) {
+          const found = readFeedFile(dir);
+          if (found) { feed = found; break; }
+        }
+      }
+      return feed;
     },
   };
 }
