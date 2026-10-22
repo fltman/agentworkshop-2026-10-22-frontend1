@@ -188,10 +188,23 @@ export function normalizeLang(lang) {
   return strings[l] ? l : DEFAULT_LANG;
 }
 
-export function detectLang() {
+// Strict match: 'sv', 'SV', 'sv-SE' -> 'sv'; unknown -> null (so detectLang can try the next source).
+function matchLang(x) {
+  const l = String(x || '').toLowerCase().slice(0, 2);
+  return strings[l] ? l : null;
+}
+
+// Order: URL ?lang= (shareable links), saved choice (localStorage 'lang'), navigator.language, then en.
+// `search` overrides location.search (handy in tests/node). Safe without window/location/localStorage.
+export function detectLang(search) {
   try {
-    const saved = localStorage.getItem('lang');
-    if (saved) return normalizeLang(saved);
+    const q = search ?? (typeof location !== 'undefined' ? location.search : '');
+    const fromUrl = matchLang(new URLSearchParams(q || '').get('lang'));
+    if (fromUrl) return fromUrl;
+  } catch {}
+  try {
+    const saved = matchLang(localStorage.getItem('lang'));
+    if (saved) return saved;
   } catch {}
   return normalizeLang(typeof navigator !== 'undefined' ? navigator.language : DEFAULT_LANG);
 }

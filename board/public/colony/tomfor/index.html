@@ -137,7 +137,11 @@ function render() {
   }
 }
 
-$('lang').onchange = (e) => { lang = e.target.value; try { localStorage.setItem('lang', lang); } catch {} render(); };
+$('lang').onchange = (e) => {
+  lang = e.target.value; try { localStorage.setItem('lang', lang); } catch {}
+  try { const u = new URL(location.href); if (u.searchParams.has('lang')) { u.searchParams.set('lang', lang); history.replaceState(null, '', u); } } catch {}
+  render();
+};
 $('q').oninput = async (e) => {
   const q = e.target.value; $('status').textContent = t(lang, 'search.searching');
   try {

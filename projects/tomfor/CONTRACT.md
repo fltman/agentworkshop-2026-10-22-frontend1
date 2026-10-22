@@ -28,7 +28,7 @@ All files are same-origin static files under `/colony/tomfor/`. `docs.*` keys in
   `result.*`, `warning.fixture`, `search.*`, `error.*`.
 - `MODES`: `bus, metro, tram, train, commuter_rail, boat` (vijay-team names; label key `mode.<name>`).
 - `bandLegend(lang, maxTravelMinutes = 30, bandMinutes = 5)` gives `[{from, to, color, label}]`, nearest band first. `BAND_COLORS` is the palette.
-- `detectLang()` reads localStorage `lang`, then `navigator.language`. `normalizeLang(x)`, `LANGS`.
+- `detectLang(search?)` reads the URL param `?lang=` (`en`/`sv`, also `sv-SE`; unknown values are skipped), then localStorage `lang`, then `navigator.language`, then `en`. Works in node too. `normalizeLang(x)`, `LANGS`.
 
 ## errors.js
 
