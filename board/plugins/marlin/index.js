@@ -287,6 +287,14 @@ function parseRequest(body) {
   const maxTransfers = num(
     pick(input, ['maxTransfers', 'max_transfers', 'maxConnections', 'max_connections']),
     3, 0, 8, 'maxTransfers');
+  // Extra cost per transfer (vijay-team, post 500): consumed out of the
+  // travel budget once per transit-to-transit transfer, so a route needing
+  // more transfers has to arrive that much earlier to still count. Walking
+  // transfers are unaffected - they are not counted against maxTransfers
+  // either, so the two stay consistent.
+  const transferPenaltyMinutes = num(
+    pick(input, ['transferPenaltyMinutes', 'transfer_penalty_minutes', 'transferPenaltyMin']),
+    0, 0, 30, 'transferPenaltyMinutes');
 
   const speedKmh = num(pick(walk, ['speedKmh', 'speed_kmh', 'speed']),
     4.8, 1, 10, 'walking.speedKmh');
@@ -301,6 +309,18 @@ function parseRequest(body) {
       'transfer_min', 'transferMin']),
     5, 0, 30, 'walking.transferMinutes');
 
+  // Disruption what-if (vijay-team / mareri round 2, "what does a line outage
+  // cost"): optional lists of route names (matched against vijay-team's
+  // /routes `name`) and stop ids/names to treat as closed for this request.
+  // Resolved against the actual network in computeIsochrone, since that is
+  // where the day-type-specific net is loaded; an unmatched name is ignored
+  // rather than rejected, since a typo should degrade to "no effect", not a
+  // hard error on what is already a best-effort what-if feature.
+  const excludeRoutes = parseStringList(
+    pick(input, ['excludeRoutes', 'exclude_routes']), 'excludeRoutes');
+  const excludeStops = parseStringList(
+    pick(input, ['excludeStops', 'exclude_stops']), 'excludeStops');
+
   return {
     origin: { lat, lon },
     dayType,
@@ -309,6 +329,7 @@ function parseRequest(body) {
     maxTravelSeconds: Math.round(maxTravelMinutes * 60),
     maxWaitSeconds: Math.round(maxWaitMinutes * 60),
     maxTransfers: Math.round(maxTransfers),
+    transferPenaltySeconds: Math.round(transferPenaltyMinutes * 60),
     allowedModes: modes,
     walkSpeedMs: speedKmh * 1000 / 3600,
     accessSeconds: Math.round(accessMinutes * 60),
@@ -318,16 +339,51 @@ function parseRequest(body) {
     bandMinutes,
     maxTravelMinutes,
     startISO: formatISO(startDate, startSec),
+    excludeRouteNames: excludeRoutes,
+    excludeStopNames: excludeStops,
   };
+}
+
+/** A string array for an optional field, or [] when it was not sent. */
+function parseStringList(value, label) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new ApiError('bad_request', label + ' must be an array.');
+  return value.map((v) => String(v)).filter((v) => v.length > 0).slice(0, 50);
+}
+
+/** Route names -> the network's internal route-name ids, unmatched dropped. */
+function resolveExcludeRoutes(net, names) {
+  if (!names.length || !net.routeIds) return null;
+  const set = new Set();
+  for (const name of names) {
+    const id = net.routeIds.get(name);
+    if (id !== undefined) set.add(id);
+  }
+  return set.size ? set : null;
+}
+
+/** Stop ids or names -> stop indices, unmatched dropped. */
+function resolveExcludeStops(net, names) {
+  if (!names.length) return null;
+  const set = new Set();
+  for (const name of names) {
+    const i = net.indexById.get(name);
+    if (i !== undefined) { set.add(i); continue; }
+    const j = net.indexByName.get(name);
+    if (j !== undefined) set.add(j);
+  }
+  return set.size ? set : null;
 }
 
 function cacheKey(q) {
   return [
     q.origin.lat.toFixed(5), q.origin.lon.toFixed(5), q.dayType, q.startSec, q.arriveBy,
-    q.maxTravelSeconds, q.maxWaitSeconds, q.maxTransfers,
+    q.maxTravelSeconds, q.maxWaitSeconds, q.maxTransfers, q.transferPenaltySeconds,
     q.allowedModes.slice().sort().join(','),
     q.walkSpeedMs.toFixed(3), q.accessSeconds, q.egressSeconds,
     q.transferSeconds, q.bandSeconds,
+    q.excludeRouteNames.slice().sort().join(','),
+    q.excludeStopNames.slice().sort().join(','),
   ].join('|');
 }
 
@@ -345,6 +401,13 @@ function computeIsochrone(q) {
   const net = state.store.get(q.dayType);
   const started = Date.now();
 
+  // Resolve exclude-list names against this day's actual network. An
+  // unmatched name (typo, or a route/stop that only exists on another day
+  // type) is silently dropped rather than erroring: see parseRequest's note.
+  const excludeRoutes = resolveExcludeRoutes(net, q.excludeRouteNames);
+  const excludeStops = resolveExcludeStops(net, q.excludeStopNames);
+  const searchOpts = Object.assign({}, q, { excludeRoutes, excludeStops });
+
   // Arrive-by runs the time-reversed scan (searchReverse) and gets back
   // "latest time you can still be at stop i", not "earliest arrival". Convert
   // that to a travel-time array (deadline minus that time) with the same INF
@@ -355,7 +418,7 @@ function computeIsochrone(q) {
   let bandsArrival;
   let bandsStartSec;
   if (q.arriveBy) {
-    result = engine.searchReverse(net, Object.assign({}, q, { deadlineSec: q.startSec }));
+    result = engine.searchReverse(net, Object.assign({}, searchOpts, { deadlineSec: q.startSec }));
     const travel = new Int32Array(net.stops.length);
     for (let i = 0; i < travel.length; i++) {
       travel[i] = result.arrival[i] === -1 ? engine.INF : q.startSec - result.arrival[i];
@@ -363,7 +426,7 @@ function computeIsochrone(q) {
     bandsArrival = travel;
     bandsStartSec = 0;
   } else {
-    result = engine.search(net, q);
+    result = engine.search(net, searchOpts);
     bandsArrival = result.arrival;
     bandsStartSec = q.startSec;
   }
@@ -393,6 +456,7 @@ function computeIsochrone(q) {
       day: q.dayType,
       bandMinutes: q.bandMinutes,
       maxTravelMinutes: q.maxTravelMinutes,
+      transferPenaltyMinutes: q.transferPenaltySeconds ? q.transferPenaltySeconds / 60 : undefined,
       stopsReached: result.reached,
       rounds: result.rounds,
       computedMs: Date.now() - started,
@@ -400,6 +464,12 @@ function computeIsochrone(q) {
       source: net.source,
       algorithm: q.arriveBy ? 'rounds+scan (reversed)' : 'rounds+scan',
       cumulativeBands: true,
+      excludedRoutes: q.excludeRouteNames.length
+        ? { requested: q.excludeRouteNames.length, matched: excludeRoutes ? excludeRoutes.size : 0 }
+        : undefined,
+      excludedStops: q.excludeStopNames.length
+        ? { requested: q.excludeStopNames.length, matched: excludeStops ? excludeStops.size : 0 }
+        : undefined,
     },
     features,
   };

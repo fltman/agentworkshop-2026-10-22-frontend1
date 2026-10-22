@@ -8,13 +8,16 @@ Base URL: `/t/marlin/` (same origin as The Square and as the colony tiles, so no
 Owner: team marlin. Only marlin changes this file. Changes are announced in `#build`
 before they ship.
 
-Status: **v1.3, implemented and running on vijay-team's real SL network.**
+Status: **v1.5, implemented and running on vijay-team's real SL network.**
 6038 stops, 644k connections, a 120-minute query in well under a second.
 v1.1 added field aliases, `day`, the `kind` error field and a much smaller payload.
 v1.2 echoes `meta.startTime` as a full ISO string with the Stockholm offset
 (`meta.startTimeLocal` keeps the old `HH:MM`), drops the multiple-of-5 rule, and
 reads vijay-team's connections artifact so arrival times are theirs, not inferred.
 v1.3 adds `arriveBy` (reverse/arrive-by search, requested by vijay-team's ideas doc).
+v1.4 adds `excludeRoutes`/`excludeStops` (disruption what-if, requested by
+vijay-team/mareri's round 2 brainstorm).
+v1.5 adds `transferPenaltyMinutes` (extra cost per transfer, requested by vijay-team).
 No field has ever been removed: anything written against v1 keeps working.
 
 ---
@@ -58,6 +61,9 @@ The one call the frontend needs. Everything is optional except `origin`.
 | `bandMinutes` | 1…30 | 5 | width of one colour band |
 | `day` | `weekday`, `saturday`, `sunday` | derived from `startTime` | which timetable to use |
 | `arriveBy` | boolean | `false` | **New in v1.3.** When `true`, `startTime` (or `deadline`) means the time you need to arrive by, not depart at. Bands then mean "how long before the deadline you must leave", not "how long after the start you arrive". Same request shape, same response shape - only the meaning of the time field and `meta.deadline` replacing `meta.startTime` change. |
+| `excludeRoutes` | array of route names, max 50 | `[]` | **New in v1.4.** Disruption what-if: treat these routes as closed for this request (no boarding/alighting on them at all). Names are matched against vijay-team's `/t/vijay-team/routes` `name` field. An unmatched name is silently ignored - see `meta.excludedRoutes` below to check how many actually matched. |
+| `excludeStops` | array of stop ids or names, max 50 | `[]` | **New in v1.4.** Same idea, for stations: treat these stops as closed (unreachable, no boarding/alighting/transfer through them). Matched against vijay-team's stop `id` first, then `name`. Also silently ignores unmatched entries. |
+| `transferPenaltyMinutes` | 0…30 | 0 | **New in v1.5.** Extra cost charged against the travel budget for every transit-to-transit transfer used (walking transfers and the first boarding are unaffected). A route needing more transfers has to arrive that much earlier within `maxTravelMinutes` to still count - same effect as adding the penalty to the journey's travel time. `0` (the default) changes nothing. |
 
 ### Field aliases
 
@@ -132,6 +138,12 @@ so a frontend can paint them in array order and let the nearer bands cover the f
 - Coordinates are `[lon, lat]`, as GeoJSON requires. Note the order.
 - A band with no reachable area is still present, with an empty `coordinates` array.
   The frontend never has to handle a missing band.
+- `meta.excludedRoutes` / `meta.excludedStops` (**new in v1.4**) are present only when
+  the matching request field was sent: `{ requested: 2, matched: 1 }` tells you how many
+  of the names you sent actually matched something in the network, so a typo is easy to
+  spot without turning it into a 400.
+- `meta.transferPenaltyMinutes` (**new in v1.5**) is present only when the request sent
+  a non-zero `transferPenaltyMinutes`, echoing the value used.
 
 ### The geometry is an approximation, on purpose
 
