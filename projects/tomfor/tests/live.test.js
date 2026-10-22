@@ -1,4 +1,4 @@
-// Live contract checks for vijay-team, marlin and mareri. Run: node tests/live.test.js [baseUrl]
+// Live contract checks for vijay-team, marlin and mareri (/isochrone, /journey). Run: node tests/live.test.js [baseUrl]
 const BASE = process.argv[2] || 'https://frontend1.torget.bjarby.com';
 const MODES = ['bus', 'metro', 'tram', 'train', 'commuter_rail', 'boat'];
 let fails = 0;
@@ -159,8 +159,36 @@ async function mareri() {
   checkError('mareri open sea', await call('POST', P, { origin: { lat: 59.2, lon: 19.2 } }), 422, 'no_stops_near_origin');
 }
 
+// mareri PR 26: POST /t/mareri/journey = /isochrone request + target; one journey with legs (CONTRACT.md).
+async function mareriJourney() {
+  const J = '/t/mareri/journey';
+  const req = (target, extra = {}) => ({ origin: { lat: 59.3313, lon: 18.0593 }, startTime: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 45, target, ...extra });
+  const ok = await call('POST', J, req({ lat: 59.3, lon: 18.075 }));
+  if (ok.status === 404 && ok.json?.error !== 'not_reachable') { console.log('INFO mareri /journey not live yet (404), skipped'); return; }
+  check('journey 200', ok.status === 200, `${ok.status} ${short(ok.json ?? ok.text)}`);
+  console.log('INFO mareri journey latency ms:', ok.ms);
+  const j = ok.json;
+  if (ok.status === 200 && j) {
+    check('journey summary fields', typeof j.totalMinutes === 'number' && j.totalMinutes <= 45 && typeof j.arriveTime === 'string' && Number.isInteger(j.transfers) && typeof j.walkMinutes === 'number' && j.origin && j.target && j.startTime, short({ ...j, legs: undefined }));
+    check('journey walkingModel street|mixed', ['street', 'mixed'].includes(j.walkingModel), short(j.walkingModel));
+    const legs = Array.isArray(j.legs) ? j.legs : [];
+    check('journey has legs of type walk|ride', legs.length > 0 && legs.every((l) => l.type === 'walk' || l.type === 'ride'), short(legs.map((l) => l.type)));
+    const inSthlm = (p) => Array.isArray(p) && p[0] > 58.5 && p[0] < 60.5 && p[1] > 17 && p[1] < 19.5;
+    check('journey leg paths are [lat,lon] pairs in Stockholm', legs.every((l) => Array.isArray(l.path) && l.path.length >= 2 && l.path.every(inSthlm)), short(legs[0]?.path?.slice(0, 2)));
+    const walks = legs.filter((l) => l.type === 'walk'), rides = legs.filter((l) => l.type === 'ride');
+    check('journey walk legs: minutes, meters, street', walks.every((l) => typeof l.minutes === 'number' && typeof l.meters === 'number' && typeof l.street === 'boolean'), short(walks[0]));
+    check('journey ride legs: line, from/to names, stops', rides.every((l) => l.line && l.from?.name && l.to?.name && l.stops > 0), short(rides[0]));
+    check('journey transfers = rides - 1', !rides.length || j.transfers === rides.length - 1, `${j.transfers} vs ${rides.length} rides`);
+  }
+  checkError('journey missing target', await call('POST', J, req(undefined)), 400, 'bad_request');
+  checkError('journey target lat 91', await call('POST', J, req({ lat: 91, lon: 18 })), 400, 'bad_request');
+  checkError('journey Uppsala in 10 min', await call('POST', J, req({ lat: 59.8586, lon: 17.6389 }, { maxTravelMinutes: 10 })), 404, 'not_reachable');
+  const get = await call('GET', J);
+  check('journey GET -> 405', get.status === 405, get.status);
+}
+
 (async () => {
-  for (const [name, fn] of [['vijay-team', vijay], ['marlin', marlin], ['mareri', mareri]]) {
+  for (const [name, fn] of [['vijay-team', vijay], ['marlin', marlin], ['mareri', mareri], ['mareri-journey', mareriJourney]]) {
     console.log(`\n== ${name} ==`);
     try { await fn(); } catch (e) { fails++; console.log('FAIL', name, 'threw', e.message); }
   }
