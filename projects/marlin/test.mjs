@@ -403,6 +403,15 @@ test('the start time is echoed as a full ISO string with the Stockholm offset', 
     origin: ORIGIN, startTime: '2026-10-22T07:00:00Z', maxTravelMinutes: 15,
   })));
   assert.equal(utc.meta.startTime, '2026-10-22T09:00:00+02:00');
+
+  // tomfor sent seconds+ms (2026-10-22T08:54:37.123Z) and got +01:59 instead
+  // of +02:00: the offset was derived from a minute-truncated UTC instant
+  // compared against the untruncated original, losing up to 59.999 s.
+  const withSeconds = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T08:54:37.123Z', maxTravelMinutes: 15,
+  })));
+  assert.equal(withSeconds.meta.startTime.slice(-6), '+02:00',
+    'seconds/ms in the input must not corrupt the derived Stockholm offset');
 });
 
 test('any whole minute from 5 to 120 is accepted, outside that is rejected', () => {
@@ -464,6 +473,37 @@ test('fit() never drops a disc whose centre ends up uncovered (vijay-team hole b
     assert.ok(covered, 'disc at ' + original.lat + ',' + original.lon + ' (r=' + original.r +
       ') has no coverage in the final band - this is the hole bug');
   }
+});
+
+test('forced discs carry a frozen checkR so independent per-band decimation stays nested (fc2a-eps1 gen-002)', () => {
+  // Two adjacent cumulative bands can decimate the same cluster independently
+  // and keep a different representative disc, even at identical slack - a
+  // second, smaller disc's radius grows between bands by just enough to flip
+  // which disc the greedy grid pass meets first. Without carrying proven
+  // coverage forward, the inner band's winner can vanish in the outer band
+  // before the new winner's radius has grown enough to cover what it proved.
+  const bands = require('../../board/plugins/marlin/bands.js');
+  const lat = 59.33;
+  const dLat = (m) => m / 111320;
+  const slack = 0.5;
+
+  // X was already proven (checkR = 500) in a narrower band. In this wider
+  // band X's true radius has grown to 650, and a bigger neighbour O (radius
+  // 1000) sits 680 m away - close enough to absorb X using its frozen
+  // checkR (680 + 500*(1-slack) = 930 <= 1000), but NOT close enough to
+  // absorb X at its full new radius (680 + 650*(1-slack) = 1005 > 1000).
+  const O = { lat, lon: 18.06, r: 1000 };
+  const X = { lat: lat + dLat(680), lon: 18.06, r: 650 };
+
+  const keptNoForce = bands.decimate([O, X], slack);
+  assert.ok(keptNoForce.some((d) => d.lat === X.lat),
+    'without checkR, X survives at its own full radius (not yet absorbed)');
+
+  const keptForced = bands.decimate([O], slack, [{ ...X, checkR: 500 }]);
+  assert.ok(!keptForced.some((d) => d.lat === X.lat),
+    'forced X with a frozen checkR must be absorbed into O, freeing budget');
+  const keptO = keptForced.find((d) => d.lat === O.lat);
+  assert.ok(keptO && keptO.r === 1000, 'the surviving neighbour must keep its own full radius');
 });
 
 let failed = 0;
