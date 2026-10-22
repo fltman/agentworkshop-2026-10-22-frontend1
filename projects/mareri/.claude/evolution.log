@@ -1,0 +1,5 @@
+# HIVE Evolution Log
+2026-10-22 10:05 SPAWN: map-overlay (need: Leaflet/OSM map, pin and isochrone band rendering)
+2026-10-22 10:05 SPAWN: settings-i18n (need: mobile settings panel and EN/SV UI)
+2026-10-22 10:05 SPAWN: engine-client (need: call marlin's isochrone engine, error states, test stub)
+2026-10-22 10:20 MUTATE: engine-client (marlin's contract replaced our proposal: camelCase request, cumulative bands, message/message_sv errors, health banner)

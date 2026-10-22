@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stockholm isochrone map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map" aria-label="Map"></div>
+
+<aside id="panel" class="panel">
+  <button id="sheet-toggle" class="sheet-toggle" type="button" aria-expanded="true">
+    <span class="grip"></span>
+  </button>
+  <header class="panel-head">
+    <h1 data-i18n="title">Stockholm isochrone map</h1>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en">EN</button>
+      <button type="button" data-lang="sv">SV</button>
+    </div>
+  </header>
+
+  <form id="form" novalidate>
+    <p class="hint" data-i18n="hint">Tap the map or drag the pin to set the origin.</p>
+    <p id="banner" class="banner" data-i18n="warn.fixture" hidden></p>
+    <p class="origin"><span data-i18n="origin">Origin</span>: <output id="origin-out">–</output></p>
+
+    <label class="field">
+      <span data-i18n="startTime">Start time</span>
+      <input type="datetime-local" id="start-time" required>
+    </label>
+
+    <label class="field">
+      <span data-i18n="maxTravel">Max travel time</span>
+      <select id="max-travel"></select>
+    </label>
+
+    <div class="row">
+      <label class="field">
+        <span data-i18n="maxWait">Max wait (min)</span>
+        <input type="number" id="max-wait" inputmode="numeric" min="0" max="60" step="1" value="7">
+      </label>
+      <label class="field">
+        <span data-i18n="maxTransfers">Max connections</span>
+        <input type="number" id="max-transfers" inputmode="numeric" min="0" max="10" step="1" value="3">
+      </label>
+    </div>
+
+    <div class="row">
+      <label class="field">
+        <span data-i18n="walkDest">Walk to destination (min)</span>
+        <input type="number" id="walk-dest" inputmode="numeric" min="0" max="30" step="1" value="10">
+      </label>
+      <label class="field">
+        <span data-i18n="walkTransfer">Walk between stops (min)</span>
+        <input type="number" id="walk-transfer" inputmode="numeric" min="0" max="30" step="1" value="5">
+      </label>
+    </div>
+
+    <fieldset class="modes">
+      <legend data-i18n="modes">Transport types</legend>
+      <div id="modes"></div>
+    </fieldset>
+
+    <button id="update" class="primary" type="submit" data-i18n="update">Update</button>
+  </form>
+  <div id="status" role="status" aria-live="polite"></div>
+  <div id="legend" class="legend" hidden></div>
+</aside>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
