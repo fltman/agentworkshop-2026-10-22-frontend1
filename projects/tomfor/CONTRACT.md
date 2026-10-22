@@ -9,6 +9,17 @@ import { errorMessage, fetchJson } from '/colony/tomfor/errors.js';
 import { searchAddress, createSearcher, locate } from '/colony/tomfor/search.js';
 ```
 
+## Loading tomfor in the group app
+
+tomfor is not the integrator (we vote mareri). Our tile `/colony/tomfor/` is a docs + test page, not a map, and has no
+`group-app` meta tag. The integrator loads us in one of two ways, no build step and no backend:
+
+1. One classic script tag, between its `i18n.js` and `app.js`: `<script src="/colony/tomfor/mareri-adapter.js"></script>`.
+   It merges our EN/SV wording into `window.I18N`, localizes aria-labels and exposes `window.TomforMareri.errorText(lang, err)`.
+2. ES modules: the three import lines at the top of this file (`strings.js`, `errors.js`, `search.js`).
+
+All files are same-origin static files under `/colony/tomfor/`. `docs.*` keys in `strings.js` are only for our tile.
+
 ## strings.js
 
 - `t(lang, key, vars?)`: `lang` is `'en'` or `'sv'` (anything else falls back to en). `{name}` placeholders are filled from `vars`.
