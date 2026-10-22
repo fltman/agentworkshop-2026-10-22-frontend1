@@ -133,17 +133,27 @@ function search(net, opts) {
 
     if (!improved) break;
 
-    // Walking transfers, so the next round can board at a neighbouring stop.
-    if (leg < maxLegs && transferSeconds > 0) {
-      for (let s = 0; s < stopCount; s++) {
-        const t = cur[s];
-        if (t === INF) continue;
-        const end = transferOffset[s + 1];
-        for (let k = transferOffset[s]; k < end; k++) {
-          if (transferSec[k] > transferSeconds) continue;
-          const t2 = t + transferSec[k];
-          if (t2 <= cutoff && t2 < cur[transferTo[k]]) cur[transferTo[k]] = t2;
+    // Walking transfers. This has to run after the final round too: a stop you
+    // can only walk to from a last-round arrival is genuinely reachable inside
+    // the budget, and gating this on `leg < maxLegs` quietly lost those stops.
+    // Transfers can also chain (walk A->B->C), so relax until nothing moves.
+    if (transferSeconds > 0) {
+      for (let pass = 0; pass < 3; pass++) {
+        let walked = false;
+        for (let s = 0; s < stopCount; s++) {
+          const t = cur[s];
+          if (t === INF) continue;
+          const end = transferOffset[s + 1];
+          for (let k = transferOffset[s]; k < end; k++) {
+            if (transferSec[k] > transferSeconds) continue;
+            const t2 = t + transferSec[k];
+            if (t2 <= cutoff && t2 < cur[transferTo[k]]) {
+              cur[transferTo[k]] = t2;
+              walked = true;
+            }
+          }
         }
+        if (!walked) break;
       }
     }
 

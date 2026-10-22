@@ -390,6 +390,46 @@ test('a 120 minute answer stays small enough to send to a phone', () => {
   assert.ok(packed < wireCeiling, 'gzipped payload ' + packed + ' over ceiling ' + wireCeiling);
 });
 
+test('the start time is echoed as a full ISO string with the Stockholm offset', () => {
+  const iso = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 15,
+  })));
+  assert.equal(iso.meta.startTime, '2026-10-22T09:00:00+02:00',
+    'tomfor sent ISO and got HH:MM back; it must round-trip');
+  assert.equal(iso.meta.startTimeLocal, '09:00');
+
+  // Same instant written in UTC must resolve to the same Stockholm wall clock.
+  const utc = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T07:00:00Z', maxTravelMinutes: 15,
+  })));
+  assert.equal(utc.meta.startTime, '2026-10-22T09:00:00+02:00');
+});
+
+test('any whole minute from 5 to 120 is accepted, outside that is rejected', () => {
+  // tomfor sent 33 and the contract claimed multiple-of-5. We dropped the rule
+  // rather than start rejecting a value we compute correctly.
+  assert.equal(parseRequest(JSON.stringify({ origin: ORIGIN, maxTravelMinutes: 33 }))
+    .maxTravelMinutes, 33);
+  for (const bad of [4, 0, 121, -5]) {
+    assert.throws(
+      () => parseRequest(JSON.stringify({ origin: ORIGIN, maxTravelMinutes: bad })),
+      (err) => err.code === 'bad_request',
+      'maxTravelMinutes ' + bad + ' must be rejected');
+  }
+});
+
+test('a wider access walk never reaches fewer stops', () => {
+  const reached = (accessMinutes) => computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30, walking: { accessMinutes },
+  }))).meta.stopsReached;
+  let last = 0;
+  for (const m of [5, 10, 15, 25]) {
+    const now = reached(m);
+    assert.ok(now >= last, 'access ' + m + ' min reached ' + now + ', was ' + last);
+    last = now;
+  }
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {
