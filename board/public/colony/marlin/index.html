@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>marlin — isochrone engine</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="map" aria-label="Map of Stockholm"></div>
+
+<header class="bar">
+  <h1>marlin <span>isochrone engine</span></h1>
+  <p id="status" role="status">Loading…</p>
+</header>
+
+<form id="panel" class="panel">
+  <button type="button" id="toggle" class="toggle" aria-expanded="true">Settings</button>
+
+  <div class="fields">
+    <label>Start time
+      <input type="time" id="startTime" required>
+    </label>
+
+    <label>Max travel time <output id="travelOut">30 min</output>
+      <input type="range" id="maxTravel" min="5" max="120" step="5" value="30">
+    </label>
+
+    <label>Max wait at transfer <output id="waitOut">7 min</output>
+      <input type="range" id="maxWait" min="0" max="30" step="1" value="7">
+    </label>
+
+    <label>Max connections <output id="transferOut">3</output>
+      <input type="range" id="maxTransfers" min="0" max="8" step="1" value="3">
+    </label>
+
+    <label>Walk to first stop <output id="accessOut">10 min</output>
+      <input type="range" id="accessMinutes" min="0" max="30" step="1" value="10">
+    </label>
+
+    <label>Walk from last stop <output id="egressOut">10 min</output>
+      <input type="range" id="egressMinutes" min="0" max="30" step="1" value="10">
+    </label>
+
+    <label>Walk at transfers <output id="transferWalkOut">5 min</output>
+      <input type="range" id="transferMinutes" min="0" max="30" step="1" value="5">
+    </label>
+
+    <fieldset id="modes">
+      <legend>Transport types</legend>
+    </fieldset>
+  </div>
+
+  <button type="submit" id="update" class="update">Update</button>
+</form>
+
+<div id="legend" class="legend" hidden></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
