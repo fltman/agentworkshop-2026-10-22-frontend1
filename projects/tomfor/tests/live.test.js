@@ -187,8 +187,60 @@ async function mareriJourney() {
   check('journey GET -> 405', get.status === 405, get.status);
 }
 
+// marlin PR 39 / CONTRACT v1.3: arriveBy:true turns startTime (or deadline) into the arrival deadline.
+async function marlinArriveBy() {
+  const P = '/t/marlin/isochrone';
+  const base = { origin: { lat: 59.3326, lon: 18.0649 }, startTime: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 30 };
+  const ab = await call('POST', P, { ...base, arriveBy: true });
+  if (ab.status === 200 && ab.json?.meta?.arriveBy !== true) {
+    console.log('SKIP arrive-by not live yet (meta.arriveBy missing, flag ignored):', short(ab.json?.meta));
+    return;
+  }
+  check('arriveBy 200', ab.status === 200, `${ab.status} ${short(ab.json ?? ab.text)}`);
+  if (ab.status !== 200) return;
+  console.log('INFO arrive-by latency ms:', ab.ms);
+  const j = ab.json, f = j.features || [];
+  check('arriveBy FeatureCollection, 6 bands', j.type === 'FeatureCollection' && f.length === 6, `${j.type} ${f.length}`);
+  check('arriveBy meta.arriveBy true', j.meta.arriveBy === true, short(j.meta.arriveBy));
+  check('arriveBy meta.deadline echoed with offset', j.meta.deadline === '2026-10-22T09:00:00+02:00', short(j.meta.deadline));
+  check('arriveBy meta.startTime not echoed', j.meta.startTime === undefined, short(j.meta.startTime));
+  check('arriveBy meta budget/bands', j.meta.maxTravelMinutes === 30 && j.meta.bandMinutes === 5 && j.meta.cumulativeBands === true, short(j.meta));
+  check('arriveBy bands outermost first, bandIndex 6..1', f.every((x, i) => x.properties.toMinutes === 30 - i * 5 && x.properties.fromMinutes === 25 - i * 5 && x.properties.bandIndex === 6 - i), short(f.map((x) => [x.properties.fromMinutes, x.properties.toMinutes])));
+  check('arriveBy bands nested (stops non-increasing inward)', f.every((x, i) => i === 0 || (x.properties.stops ?? 0) <= (f[i - 1].properties.stops ?? 0)), short(f.map((x) => x.properties.stops)));
+  check('arriveBy geometry MultiPolygon', f.every((x) => x.geometry?.type === 'MultiPolygon'), short(f[0]?.geometry?.type));
+  check('arriveBy outermost band has area', (f[0]?.geometry?.coordinates?.length ?? 0) > 0, 'empty');
+
+  // A/B: same origin and time, depart-at vs arrive-by must not be the same answer.
+  const fw = await call('POST', P, base);
+  const sig = (r) => JSON.stringify((r.json?.features || []).map((x) => [x.properties.stops, x.geometry?.coordinates]));
+  check('A/B depart-at meta.arriveBy not true', fw.json?.meta?.arriveBy !== true, short(fw.json?.meta?.arriveBy));
+  check('A/B arrive-by result differs from depart-at', sig(ab) !== sig(fw), 'identical features: arriveBy ignored?');
+  console.log('INFO A/B stopsReached depart-at', fw.json?.meta?.stopsReached, 'arrive-by', j.meta.stopsReached,
+    '| band stops fw', short(fw.json?.features?.map((x) => x.properties.stops)), 'ab', short(f.map((x) => x.properties.stops)));
+
+  const dl = await call('POST', P, { origin: base.origin, deadline: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 30, arriveBy: true });
+  check('deadline alias accepted and echoed', dl.status === 200 && dl.json?.meta?.deadline === '2026-10-22T09:00:00+02:00', `${dl.status} ${short(dl.json?.meta ?? dl.text)}`);
+
+  for (const v of ['false', 'yes', 1]) {
+    checkError(`arriveBy ${JSON.stringify(v)} (not boolean)`, await call('POST', P, { ...base, arriveBy: v }), 400, 'bad_request');
+  }
+}
+
+// Only with PERF=1: 3 sequential 120-minute queries (heavy, ~5 MB each), report timings, no pass/fail.
+async function marlinPerf() {
+  if (!process.env.PERF) { console.log('SKIP perf (set PERF=1)'); return; }
+  const body = { origin: { lat: 59.3303, lon: 18.0586 }, startTime: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 120 };
+  const ms = [];
+  for (let i = 0; i < 3; i++) {
+    const r = await call('POST', '/t/marlin/isochrone', body);
+    ms.push(r.ms);
+    console.log(`INFO perf 120 min run ${i + 1}: ${r.status} ${r.ms} ms ${(r.text.length / 1e6).toFixed(1)} MB computedMs=${r.json?.meta?.computedMs}`);
+  }
+  console.log('INFO perf 120 min median ms:', [...ms].sort((a, b) => a - b)[1]);
+}
+
 (async () => {
-  for (const [name, fn] of [['vijay-team', vijay], ['marlin', marlin], ['mareri', mareri], ['mareri-journey', mareriJourney]]) {
+  for (const [name, fn] of [['vijay-team', vijay], ['marlin', marlin], ['marlin-arriveBy', marlinArriveBy], ['marlin-perf', marlinPerf], ['mareri', mareri], ['mareri-journey', mareriJourney]]) {
     console.log(`\n== ${name} ==`);
     try { await fn(); } catch (e) { fails++; console.log('FAIL', name, 'threw', e.message); }
   }
