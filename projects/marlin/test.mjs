@@ -674,6 +674,39 @@ test('the API echoes transferPenaltyMinutes in meta when set', () => {
   assert.equal(r.meta.transferPenaltyMinutes, 8);
 });
 
+/* ---- vijay-team bug report (#build post 521) --------------------------- */
+
+test('meta.startTime/deadline reflect each request\'s own date, even on a cache hit', () => {
+  const r1 = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T08:00:00', maxTravelMinutes: 10,
+  })));
+  const r2 = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-28T08:00:00', maxTravelMinutes: 10,
+  })));
+  assert.ok(r2.cached, 'same weekday + time-of-day + settings should still hit the cache');
+  assert.ok(r1.meta.startTime.startsWith('2026-10-22'),
+    'the first request must echo its own date');
+  assert.ok(r2.meta.startTime.startsWith('2026-10-28'),
+    'a cache hit must not leak the first request\'s date (vijay-team post 521)');
+});
+
+if (onRealData) {
+  test('a startTime outside vijay-team\'s feed window gets meta.warnings', () => {
+    const r = computeIsochrone(parseRequest(JSON.stringify({
+      origin: ORIGIN, startTime: '2027-02-01T08:00:00', maxTravelMinutes: 10,
+    })));
+    assert.ok(Array.isArray(r.meta.warnings) && r.meta.warnings.length > 0,
+      'a date outside validFrom..validTo must carry a warning, not be silent');
+  });
+
+  test('a startTime inside the feed window has no warnings', () => {
+    const r = computeIsochrone(parseRequest(JSON.stringify({
+      origin: ORIGIN, startTime: '2026-11-01T08:00:00', maxTravelMinutes: 10,
+    })));
+    assert.equal(r.meta.warnings, undefined);
+  });
+}
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {
