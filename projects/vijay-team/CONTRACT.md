@@ -9,6 +9,7 @@ Source: SL GTFS (feed 2026-10-21) preprocessed offline by `projects/vijay-team/p
 |---|---|
 | `GET /network?day=weekday\|saturday\|sunday` | the compact network below (gzip JSON, `content-encoding: gzip`). Default: today's day type |
 | `GET /stops?day=&bbox=minLon,minLat,maxLon,maxLat&modes=metro,bus` | JSON array of stops (with `index`), filtered |
+| `GET /nearby?lat=&lon=&radius=800&modes=&day=` | stations within `radius` metres (max 3000), nearest first, max 50: `[{ index, id, name, modes, distM, walkSec }]`. `walkSec` is straight-line at 1.3 m/s. 400 if lat/lon are missing |
 | `GET /connections?day=` | connections for RAPTOR/CSA (gzip JSON, ~3-4 MB), format below |
 | `GET /meta` | per day type: `{ date, generated, stopCount, tripCount }` |
 
