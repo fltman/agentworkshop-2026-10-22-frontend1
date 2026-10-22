@@ -36,7 +36,7 @@
   var pin = L.marker(STOCKHOLM, {
     draggable: true,
     autoPan: true,
-    icon: L.divIcon({ className: 'pin', html: PIN_SVG, iconSize: [36, 44], iconAnchor: [18, 43] })
+    icon: L.divIcon({ className: 'pin', html: PIN_SVG, iconSize: [44, 44], iconAnchor: [22, 43] })
   }).addTo(map);
   pin.on('dragstart', function () { pin.getElement().classList.add('lifted'); });
   pin.on('dragend', function () { pin.getElement().classList.remove('lifted'); });
@@ -224,6 +224,8 @@
     var el = $('status');
     el.textContent = msg || '';
     el.className = isError ? 'error' : '';
+    el.setAttribute('role', isError ? 'alert' : 'status');
+    el.setAttribute('aria-live', isError ? 'assertive' : 'polite');
   }
 
   // ---- Overlay rendering ----
@@ -400,21 +402,6 @@
     return e.isNetwork || e.status === 404 || e.status === 405 || e.status >= 500;
   }
 
-  async function checkWalkable(body, ctrl) {
-    var r;
-    try {
-      r = await fetch('/t/mareri/walkable?lat=' + body.origin.lat + '&lon=' + body.origin.lon, { signal: ctrl.signal });
-    } catch (e) {
-      if (e.name === 'AbortError') throw e;
-      return;
-    }
-    if (r.status !== 422) return;
-    var d = await r.json().catch(function () { return {}; });
-    var err = new Error((lang === 'sv' ? d.message_sv : d.message) || d.message || 'not walkable');
-    err.status = 422;
-    throw err;
-  }
-
   async function callEngine(body) {
     if (params.get('stub') === '1' && window.StubEngine) return window.StubEngine(body);
     if (inflight) inflight.abort();
@@ -423,11 +410,10 @@
     var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     try {
       try {
-        if (!body.modes.length) await checkWalkable(body, ctrl); // walk-only engine does not know the streets
-        if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl);
         return await postEngine(ENGINE_URL, body, ctrl);
       } catch (e) {
         if (e.name === 'AbortError' || !streetEngineDown(e)) throw e;
+        if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl); // street engine down
         return await postEngine(FALLBACK_ENGINE_URL, body, ctrl);
       }
     } finally {
@@ -760,7 +746,7 @@
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
         speakSummary(fc);
-        setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' && !body.arriveBy ? body : null);
+        setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' && !body.arriveBy && !fc.meta.walkOnly ? body : null);
         if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
         else if (!(fc && fc.meta && fc.meta.walkOnly) && !body.arriveBy) loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {
@@ -794,6 +780,7 @@
     h.set('ll', p.lat.toFixed(5) + ',' + p.lng.toFixed(5));
     Object.keys(HASH_FIELDS).forEach(function (k) { h.set(k, $(HASH_FIELDS[k]).value); });
     h.set('a', $('arrive-by').checked ? '1' : '0');
+    h.set('l', lang);
     h.set('m', Array.prototype.slice.call(modesBox.querySelectorAll('input:checked'))
       .map(function (cb) { return cb.value; }).join(','));
     history.replaceState(null, '', '#' + h.toString());
@@ -815,6 +802,7 @@
       modesBox.querySelectorAll('input').forEach(function (cb) { cb.checked = on.indexOf(cb.value) !== -1; });
     }
     $('arrive-by').checked = h.get('a') === '1';
+    if (h.get('l') === 'sv' || h.get('l') === 'en') lang = h.get('l');
     syncTravel();
     return true;
   }

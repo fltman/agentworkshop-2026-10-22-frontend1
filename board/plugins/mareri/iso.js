@@ -524,12 +524,16 @@ function compute(net, q, helpers) {
 
   // Arrive-by: q.startSec is the deadline. The pin is the destination, so its street walk to the stops
   // uses the destination walking budget (as marlin does), and the scan runs backward in time.
-  const arriveBy = !!q.arriveBy;
-  const pinWalkSec = arriveBy ? q.egressSeconds : q.accessSeconds;
+  const walkOnly = !!q.walkOnly;
+  const arriveBy = !!q.arriveBy && !walkOnly;
+  const egressSec = walkOnly ? q.maxTravelSeconds : q.egressSeconds;
+  const pinWalkSec = walkOnly ? q.maxTravelSeconds : arriveBy ? q.egressSeconds : q.accessSeconds;
   const access = accessSeeds(net, g, sn, arriveBy ? Object.assign({}, q, { accessSeconds: q.egressSeconds }) : q);
   const table = transfersFor(net, g, sn, q.transferSeconds, v);
   let result;
-  if (arriveBy) {
+  if (walkOnly) {
+    result = { arrival: new Int32Array(net.stops.length).fill(INF), reached: 0, originStops: 0, rounds: 0 };
+  } else if (arriveBy) {
     const rev = searchReverse(net, q, Array.from(access.seeds, ([i, t]) => [i, 2 * q.startSec - t]), table);
     // Re-express as "time at which you would arrive" so the raster code below is shared:
     // startSec + travel time, where travel time = deadline - latest departure from the stop.
@@ -539,11 +543,11 @@ function compute(net, q, helpers) {
   } else {
     result = search(net, q, Array.from(access.seeds), table);
   }
-  if (result.originStops === 0) throw new helpers.ApiError('no_stops_near_origin');
-  if (result.reached === 0) throw new helpers.ApiError('nothing_reachable');
+  if (!walkOnly && result.originStops === 0) throw new helpers.ApiError('no_stops_near_origin');
+  if (!walkOnly && result.reached === 0) throw new helpers.ApiError('nothing_reachable');
 
   const stops = net.stops;
-  const egressM = q.egressSeconds * v;
+  const egressM = egressSec * v;
   const cellM = q.maxTravelSeconds <= 2700 ? 80 : q.maxTravelSeconds <= 5400 ? 120 : 160;
 
   // Extent: every reached stop plus the egress radius, and the pin.
@@ -579,13 +583,13 @@ function compute(net, q, helpers) {
     }
   }
   if (access.pin) {
-    seeds.push({ node: access.pin.node, t: q.startSec + access.pin.metres / v, o: q.startSec + pinWalkSec - q.egressSeconds });
+    seeds.push({ node: access.pin.node, t: q.startSec + access.pin.metres / v, o: q.startSec + pinWalkSec - egressSec });
   } else {
     disc(discGrid, q.origin.lat, q.origin.lon, q.startSec, pinWalkSec * v, v, cutoff);
   }
 
   const { off, to, len, lat, lon } = g;
-  street.dijkstra(g, seeds, v, q.egressSeconds, cutoff, (u, t, o) => {
+  street.dijkstra(g, seeds, v, egressSec, cutoff, (u, t, o) => {
     mark(walkGrid, lat[u], lon[u], t);
     for (let e = off[u]; e < off[u + 1]; e++) {
       const L = len[e];
@@ -593,7 +597,7 @@ function compute(net, q, helpers) {
       const w = to[e];
       for (let s = half; s < L; s += half) {
         const tt = t + s / v;
-        if (tt > cutoff || tt - o > q.egressSeconds) break;
+        if (tt > cutoff || tt - o > egressSec) break;
         const f = s / L;
         mark(walkGrid, lat[u] + (lat[w] - lat[u]) * f, lon[u] + (lon[w] - lon[u]) * f, tt);
       }
@@ -631,6 +635,7 @@ function compute(net, q, helpers) {
   return {
     features,
     reached: result.reached,
+    walkOnly,
     rounds: result.rounds,
     walking: { streetStops, straightLineStops: discStops, pinOnStreet: !!access.pin, cellMetres: Math.round(walkGrid.size) },
     computedMs: Date.now() - started,

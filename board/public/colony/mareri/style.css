@@ -103,7 +103,7 @@ input[type="number"], input[type="datetime-local"] {
 input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); background: var(--bg-solid); }
 input[type="datetime-local"] { color-scheme: light dark; }
 
-input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 36px; background: transparent; margin: 0; --pct: 25%; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; margin: 0; --pct: 25%; }
 input[type="range"]::-webkit-slider-runnable-track {
   height: 8px; border-radius: 4px;
   background: linear-gradient(90deg, var(--accent), var(--accent2)) 0 / var(--pct) 100% no-repeat, var(--field);

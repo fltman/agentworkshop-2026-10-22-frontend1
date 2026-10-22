@@ -84,3 +84,7 @@ The hover/long-press journey card is a fixed panel on the right (top on mobile) 
 ## Arrive-by on streets
 
 `POST /t/mareri/isochrone` accepts `arriveBy: true` (same contract as marlin v1.3: `startTime`/`deadline` is the deadline, bands are how long before it you must leave, `meta.deadline`). Walking to and from the pin and between stops follows the street graph, like the forward search. The tile now sends arrive-by here; marlin is only the fallback when the street engine is down. The hover journey stays off in arrive-by mode (it is forward only).
+
+## Walk-only on streets
+
+`POST /t/mareri/isochrone` with `modes: []` (or only `"walk"`) returns street-walking bands for the whole `maxTravelMinutes` budget (no 30 min cap), `meta.walkOnly: true`, `meta.walkingModel: "street"`. The tile uses it for "all transport types off"; filbac `/api/isochrone` is only the fallback when the street engine is down.
