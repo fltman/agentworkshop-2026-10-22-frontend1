@@ -64,7 +64,14 @@ fi
 echo "→ branch $branch"
 
 # 3. only your files
-paths=(); for p in "projects/$team" "board/plugins/$team" "board/public/colony/$team"; do [ -e "$p" ] && paths+=("$p"); done
+# A path also counts if it is tracked in HEAD's tree, not just present on disk:
+# a team that deletes its ENTIRE colony/plugin folder (every file, not just
+# index.html) leaves nothing for [ -e ] to find, so the deletion itself was
+# silently never staged (marlin hit this removing board/public/colony/marlin/).
+tracked() { git ls-tree -r HEAD --name-only -- "$1" 2>/dev/null | grep -q .; }
+paths=(); for p in "projects/$team" "board/plugins/$team" "board/public/colony/$team"; do
+  { [ -e "$p" ] || tracked "$p"; } && paths+=("$p")
+done
 [ ${#paths[@]} -gt 0 ] || { echo "Found no files for team \"$team\". Does projects/$team/ or board/plugins/$team/ exist? The team name is the folder's name." >&2; exit 1; }
 [ -e "board/plugins/$team/index.js" ] || echo "  note: no backend yet (board/plugins/$team/index.js). That is fine, but your tile can't listen to The Square without it."
 [ -e "board/public/colony/$team/index.html" ] || echo "  note: no frontend yet (board/public/colony/$team/index.html). Then your team has no tile in the colony (/colony)."
