@@ -78,5 +78,34 @@ await assert.rejects(D.fetchJourney({}, { lat: 0, lon: 0 }, { fetch: fakeFetch(4
 assert.deepStrictEqual({ ...D.parseLatLon(' 59.325, 18.071 ') }, { label: '59.325, 18.071', lat: 59.325, lon: 18.071 });
 assert.equal(D.parseLatLon('Gamla stan'), null);
 
+// describeFor: a place picked elsewhere (filbac's search control) -> sentence, errors resolve too
+r = await D.describeFor({ lat: 59.32, lon: 18.07, label: 'Gamla stan, Stockholm' }, { lang: 'sv', request: { maxTravelMinutes: 30 }, fetch: fakeFetch(200, real) });
+assert.equal(r.text, 'Gamla stan: 13 min, åk 08:40, 4 min promenad och sedan tunnelbana 13 och sedan 6 min promenad');
+assert.deepStrictEqual(sent.body.target, { lat: 59.32, lon: 18.07 });
+r = await D.describeFor({ lat: 59.2, lon: 17.6 }, { lang: 'en', request: { maxTravelMinutes: 30 }, fetch: fakeFetch(404, fx('not-reachable.json')) });
+assert.deepStrictEqual([r.kind, r.error.status], ['outOfReach', 404]);
+assert.ok(r.text.startsWith('Your destination is not within 30 min.'), r.text);
+
+// attach with filbac's control: no second input, pick(lat, lon) labels with the text typed in the control
+const mk = (tag) => ({ tag, attrs: {}, kids: [], textContent: '', setAttribute(k, v) { this.attrs[k] = v; },
+  appendChild(c) { this.kids.push(c); }, addEventListener() {}, remove() {} });
+const doc = { createElement: mk, documentElement: { lang: 'en' } };
+const host = { ...mk('div'), ownerDocument: doc };
+const filbacInput = { value: 'Gamla stan' };
+const searchCtl = { control: { getContainer: () => ({ querySelector: (q) => (q === 'input' ? filbacInput : null) }) }, refreshLabels() {} };
+let got;
+const h = D.attach(host, { searchControl: searchCtl, lang: () => 'en', fetch: fakeFetch(200, real), getRequest: () => ({ maxTravelMinutes: 30 }), onResult: (o) => { got = o; } });
+const tags = (n) => [n.tag, ...n.kids.flatMap(tags)];
+assert.deepStrictEqual(tags(host), ['div', 'div', 'p']);
+assert.equal(h.input, null);
+await h.pick(59.32, 18.07);
+assert.equal(h.live.textContent, 'Gamla stan: 13 min, leave 08:40, 4 min walk then metro 13 then 6 min walk');
+assert.equal(got.kind, 'journey');
+await h.pick(59.32, 18.07, 'Slussen');
+assert.ok(h.live.textContent.startsWith('Slussen: 13 min'));
+h.setLang('sv');
+const h2 = D.attach({ ...mk('div'), ownerDocument: doc }, { searchControl: true, fetch: fakeFetch(200, real) });
+assert.ok((await h2.pick(59.3, 18.0)).text.startsWith('Your destination: 13 min'));
+
 for (const l of ['en', 'sv']) console.log(l, '|', d(l, real, { place: 'Gamla stan' }).text);
 console.log('OK destination.js');

@@ -2,7 +2,7 @@
   "runner": "pr26",
   "base": "https://frontend1.torget.bjarby.com",
   "app": "/colony/mareri/",
-  "finishedAt": "2026-10-22T10:57:20.030Z",
+  "finishedAt": "2026-10-22T11:10:33.052Z",
   "live": true,
   "journeyStatus": 400,
   "pass": 5,

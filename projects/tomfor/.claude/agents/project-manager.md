@@ -75,3 +75,6 @@ Only safe, reversible pre-work inside our own folders: tests for a contract that
 ## Your limitation
 
 Speculative pre-work and stale tripwires. Keep idle work small and reversible, and re-check the ledger every round so stale lines get marked.
+
+## Task-board loop (added 13:08)
+Own filbac's task board loop: watch for T-n cards we raised that move to review, dispatch the right verifier (browser-e2e-tester for UI/suites, jonny-walker for walk/arrive-by), then post the !task done command once verified.

@@ -3,6 +3,8 @@
 // window.TomforDestination.describeJourney(lang, journey, opts) turns mareri's POST /t/mareri/journey answer
 // (or its error body) into {text, srText, kind}. attach(container, opts) adds a "To" field that searches an
 // address (search.js, loaded on demand), calls /journey and reads the sentence out in an aria-live region.
+// With filbac's IsoSearchControl picking the place, use attach(container, {searchControl}) (no second input) and
+// call handle.pick(lat, lon) from its onPick, or describeFor(place, opts) without any DOM.
 (function (root) {
   'use strict';
 
@@ -240,6 +242,34 @@
     }).finally(function () { if (timer) clearTimeout(timer); });
   }
 
+  // Place picked elsewhere (e.g. filbac's search control) -> fetch /journey -> describeJourney.
+  // place: {lat, lon, label?}. opts: lang, request, origin, endpoint, fetch, signal, query, walkOnlyMinutes.
+  // Resolves {place, journey, error, text, srText, kind}; never rejects.
+  function describeFor(place, opts) {
+    opts = opts || {};
+    var req = opts.request || {};
+    var short = String(place.label || '').split(',')[0].trim() || t(opts.lang, 'dest.place');
+    return fetchJourney(req, place, { origin: opts.origin, endpoint: opts.endpoint, signal: opts.signal, fetch: opts.fetch })
+      .then(function (journey) { return { journey: journey, error: null }; }, function (error) { return { journey: null, error: error }; })
+      .then(function (r) {
+        var d = describeJourney(opts.lang, r.journey || r.error, {
+          place: short, request: req, query: opts.query, walkOnlyMinutes: opts.walkOnlyMinutes
+        });
+        return { place: place, journey: r.journey, error: r.error, text: d.text, srText: d.srText, kind: d.kind };
+      });
+  }
+
+  // The text the user typed in a filbac IsoSearchControl handle ({control, refreshLabels}) or in a plain input.
+  function controlText(sc) {
+    try {
+      if (!sc) return '';
+      if (typeof sc.value === 'string') return sc.value.trim();
+      var box = sc.control && sc.control.getContainer ? sc.control.getContainer() : sc.getContainer ? sc.getContainer() : sc;
+      var inp = box && box.querySelector && box.querySelector('input');
+      return inp ? String(inp.value || '').trim() : '';
+    } catch (e) { return ''; }
+  }
+
   // "59.325, 18.071" typed directly works without search.js.
   function parseLatLon(q) {
     var m = /^\s*(-?\d+(?:\.\d+)?)\s*[,; ]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(String(q || ''));
@@ -271,53 +301,64 @@
     return e;
   }
 
-  // attach(container, {getOrigin, getRequest, onResult, lang, endpoint}) -> {input, live, go(place), setLang, destroy}
+  // attach(container, {getOrigin, getRequest, onResult, lang, endpoint, searchControl})
+  //   -> {input, live, go(place), pick(lat, lon, label), setLang, destroy}
   // getRequest(): the isochrone request behind the shown map (origin, startTime, modes, ...).
   // getOrigin(): optional {lat, lon}, overrides request.origin. lang: 'en'|'sv' or a function returning one.
+  // searchControl: filbac's IsoSearchControl handle, an <input>, or true. Then no To field is created: only the
+  // aria-live sentence; call pick(lat, lon) from the control's onPick (label = text typed in the control).
   // onResult({place, journey, error, text, srText, kind}).
   function attach(container, opts) {
     opts = opts || {};
     var doc = container.ownerDocument || root.document;
     var lang = function () { return norm(typeof opts.lang === 'function' ? opts.lang() : opts.lang || doc.documentElement.lang); };
     var uid = 'tomfor-dest-' + Math.random().toString(36).slice(2, 8);
+    var external = !!opts.searchControl;
     var wrap = el(doc, 'div', { class: 'tomfor-dest' });
-    var label = el(doc, 'label', { for: uid + '-in' }, t(lang(), 'dest.label'));
-    var input = el(doc, 'input', {
+    var label = external ? null : el(doc, 'label', { for: uid + '-in' }, t(lang(), 'dest.label'));
+    var input = external ? null : el(doc, 'input', {
       id: uid + '-in', type: 'search', autocomplete: 'off', role: 'combobox',
       'aria-autocomplete': 'list', 'aria-expanded': 'false', 'aria-controls': uid + '-list',
       placeholder: t(lang(), 'dest.placeholder')
     });
-    var list = el(doc, 'ul', { id: uid + '-list', role: 'listbox', hidden: '' });
+    var list = external ? null : el(doc, 'ul', { id: uid + '-list', role: 'listbox', hidden: '' });
     var live = el(doc, 'p', { class: 'tomfor-dest-result', 'aria-live': 'polite', role: 'status' });
-    wrap.appendChild(label); wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(live);
+    if (!external) { wrap.appendChild(label); wrap.appendChild(input); wrap.appendChild(list); }
+    wrap.appendChild(live);
     container.appendChild(wrap);
 
     var searcher = null, ctrl = null, lastQuery = '';
-    loadModules();
+    if (!external) loadModules();
 
     function say(text) { live.textContent = text; }
-    function closeList() { list.innerHTML = ''; list.hidden = true; input.setAttribute('aria-expanded', 'false'); }
+    function closeList() {
+      if (!list) return;
+      list.innerHTML = ''; list.hidden = true; input.setAttribute('aria-expanded', 'false');
+    }
 
     function go(place) {
       closeList();
-      input.value = place.label;
+      if (input) input.value = place.label;
       if (ctrl) ctrl.abort();
       ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-      var short = String(place.label).split(',')[0];
+      var short = String(place.label || '').split(',')[0].trim() || t(lang(), 'dest.place');
       say(t(lang(), 'dest.searching', { place: short }));
-      var req = (opts.getRequest && opts.getRequest()) || {};
-      var origin = opts.getOrigin && opts.getOrigin();
       var mine = ctrl;
-      return fetchJourney(req, place, { origin: origin, endpoint: opts.endpoint, signal: ctrl && ctrl.signal, fetch: opts.fetch })
-        .then(function (journey) { return { journey: journey, error: null }; }, function (error) { return { journey: null, error: error }; })
-        .then(function (r) {
-          if (mine !== ctrl) return null;
-          var d = describeJourney(lang(), r.journey || r.error, { place: short, request: req, query: lastQuery });
-          say(d.text);
-          var out = { place: place, journey: r.journey, error: r.error, text: d.text, srText: d.srText, kind: d.kind };
-          if (opts.onResult) opts.onResult(out);
-          return out;
-        });
+      return describeFor(place, {
+        lang: lang(), request: (opts.getRequest && opts.getRequest()) || {}, origin: opts.getOrigin && opts.getOrigin(),
+        endpoint: opts.endpoint, fetch: opts.fetch, signal: ctrl && ctrl.signal, query: lastQuery || place.label
+      }).then(function (out) {
+        if (mine !== ctrl) return null;
+        say(out.text);
+        if (opts.onResult) opts.onResult(out);
+        return out;
+      });
+    }
+
+    function pick(lat, lon, text) {
+      var typed = text || controlText(opts.searchControl === true ? null : opts.searchControl);
+      lastQuery = typed;
+      return go({ lat: +lat, lon: +lon, label: typed });
     }
 
     function show(results) {
@@ -360,12 +401,17 @@
       if (first) first.click();
     }
 
-    input.addEventListener('input', onInput);
-    input.addEventListener('keydown', onKey);
+    if (input) {
+      input.addEventListener('input', onInput);
+      input.addEventListener('keydown', onKey);
+    }
 
     return {
-      input: input, live: live, go: go,
-      setLang: function (l) { opts.lang = l; label.textContent = t(lang(), 'dest.label'); input.placeholder = t(lang(), 'dest.placeholder'); },
+      input: input, live: live, go: go, pick: pick,
+      setLang: function (l) {
+        opts.lang = l;
+        if (label) { label.textContent = t(lang(), 'dest.label'); input.placeholder = t(lang(), 'dest.placeholder'); }
+      },
       destroy: function () { if (searcher) searcher.cancel(); if (ctrl) ctrl.abort(); wrap.remove(); }
     };
   }
@@ -376,6 +422,7 @@
     describeJourney: describeJourney,
     describeError: describeError,
     fetchJourney: fetchJourney,
+    describeFor: describeFor,
     parseLatLon: parseLatLon,
     attach: attach,
     use: function (mod) { if (mod && mod.errorMessage) errorsModule = mod; if (mod && mod.createSearcher) searchModule = mod; return api; },

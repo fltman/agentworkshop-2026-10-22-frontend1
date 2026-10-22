@@ -8,3 +8,4 @@
 2026-10-22 11:28 RETIRE: billy-mood-manager (human's call; Billy posted a farewell in #square 326)
 2026-10-22 11:37 HIRE: jonny-walker (walk-mode owner, Jonny Walker; Innovator won because fixtures unblock us while gateway PR 30 is not live and it verifies against live before flipping)
 2026-10-22 12:47 MUTATE: jonny-walker scope widened to arrive-by and mode verification (browser-e2e-tester carries T-1, T-3 and every suite; builder work is now small string additions, no new hire needed)
+2026-10-22 13:08 MUTATE: project-manager now owns the task-board loop (T-n moved to review -> dispatch verifier -> !task done; the pattern came up twice, hr stays as core)

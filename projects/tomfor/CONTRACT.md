@@ -105,7 +105,23 @@ loads `search.js` and `errors.js` on demand and works without them (own EN/SV st
 - `TomforDestination.attach(container, {getRequest, getOrigin?, onResult?, lang?, endpoint?})` adds a "To"/"Till"
   combobox (Nominatim via search.js), calls `/journey` with the request behind the shown map and writes the sentence
   into an `aria-live` region. `onResult({place, journey, error, text, srText, kind})` can draw the route.
-  Returns `{input, live, go(place), setLang(lang), destroy()}`.
+  Returns `{input, live, go(place), pick(lat, lon, label?), setLang(lang), destroy()}`.
+- `TomforDestination.describeFor({lat, lon, label?}, {lang, request, origin?, endpoint?, signal?})` -> Promise of
+  `{place, journey, error, text, srText, kind}` (never rejects): fetch `/journey` plus `describeJourney`, no DOM.
+
+### With filbac's search control (T-6): one input, not two
+
+filbac's `/colony/filbac/search-control.js` (`IsoSearchControl.add(map, {lang, onPick(lat, lon)})`) picks the place;
+destination.js only writes the sentence. Pass the control as `searchControl` and no "To" field is created, only the
+`aria-live` line; `pick(lat, lon)` labels the place with the text typed in the control (or "Your destination").
+`searchControl` may also be a plain `<input>` or `true`.
+
+```js
+var destCtl = IsoSearchControl.add(map, { lang: function () { return lang; },
+  onPick: function (lat, lon) { destPin.setLatLng([lat, lon]); dest.pick(lat, lon); } });
+var dest = TomforDestination.attach(panel, { searchControl: destCtl, lang: function () { return lang; },
+  getRequest: function () { return lastRequest; }, onResult: function (r) { /* draw r.journey.legs */ } });
+```
 
 Example, real answer captured 13:02 (T-Centralen to Gamla stan, `tests/fixtures/journey/gamlastan.json`):
 

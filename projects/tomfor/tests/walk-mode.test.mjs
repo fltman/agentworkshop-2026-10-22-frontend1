@@ -101,7 +101,7 @@ async function test(name, fn) {
 
 // Checks every invariant on one walk-only FeatureCollection. tol: allowed share of inner vertices outside outer
 // (mareri's street polygons for neighbouring minutes differ by a vertex or two, e.g. 2 of 102 at 25 in 30 min).
-function checkBands(fc, c, { tol = 0.02, label = c.name } = {}) {
+function checkBands(fc, c, { tol = 0.02, label = c.name, raw = false } = {}) {
   assert.equal(fc.type, 'FeatureCollection');
   assert.equal(fc.meta.walkOnly, true, 'meta.walkOnly');
   assert.equal(fc.meta.maxTravelMinutes, c.maxMinutes);
@@ -121,7 +121,8 @@ function checkBands(fc, c, { tol = 0.02, label = c.name } = {}) {
     assert.equal(p.to_min, p.toMinutes); assert.equal(p.from_min, p.fromMinutes);
     if (p.toMinutes > 30) assert.equal(p.source, 'estimate', 'beyond 30 min is an estimate');
     else assert(['street', 'estimate'].includes(p.source));
-    assert.equal(p.estimated, p.source === 'estimate', 'estimated flag follows source');
+    // properties.estimated is added by walk-mode.js, raw gateway answers only carry source.
+    if (!raw) assert.equal(p.estimated, p.source === 'estimate', 'estimated flag follows source');
     assert(x.geometry && /Polygon$/.test(x.geometry.type));
   }
   for (let i = 0; i < f.length - 1; i++) {
@@ -344,7 +345,7 @@ if (!LIVE) {
       body: JSON.stringify({ origin: { lat: c.lat, lon: c.lon }, modes: [], maxTravelMinutes: c.maxMinutes, bandMinutes: c.stepMinutes }) });
     const j = await r.json();
     if (!W.isWalkBands(j)) { findings.push('gateway modes [] -> ' + r.status + ' ' + (j.message || j.error)); return; }
-    try { checkBands(j, c, { label: 'gateway raw' }); } catch (e) { findings.push('FAULT ' + e.message); }
+    try { checkBands(j, c, { label: 'gateway raw', raw: true }); } catch (e) { findings.push('FAULT ' + e.message); }
   });
 }
 
