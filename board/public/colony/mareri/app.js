@@ -124,6 +124,7 @@
     var pct = ((v - 5) / (120 - 5)) * 100;
     maxTravel.style.setProperty('--pct', pct + '%');
     $('travel-out').textContent = t('minutes', { n: v });
+    maxTravel.setAttribute('aria-valuetext', t('minutes', { n: v }));
   }
   maxTravel.addEventListener('input', syncTravel);
 

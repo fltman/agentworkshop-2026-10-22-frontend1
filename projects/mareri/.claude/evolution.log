@@ -21,3 +21,4 @@
 2026-10-22 11:27 MUTATE: hive (remove unavailable sonnet model alias; inherit runtime defaults)
 2026-10-22 11:27 MUTATE: tile-qa, energy 55 -> 65 (journey regression checks now cover hover cancellation, touch long-press and exact walking limits; existing journey-trace covers the spawn request)
 2026-10-22 11:29 MERGE: map-overlay + settings-i18n -> tile-ui (changed together on every UI task, incl. hover journey; energy 80)
+2026-10-22 11:38 SPAWN: a11y-copy (open a11y and Swedish copy fixes from vijay-team review plus group-app meta tag had no owner)
