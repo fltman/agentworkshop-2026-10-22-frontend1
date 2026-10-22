@@ -7,3 +7,5 @@
 2026-10-22 10:25 SPAWN: tile-qa (need: browser verification of SV, error paths and real-data run, none done before PR #11)
 2026-10-22 10:27 EVOLVE: tile-qa energy 50 -> 60 (SV, error path and 120-min real-data run verified in headless Chrome); no merge, filbac/tomfor overlap tolerated, tile stays standalone (no runtime import of tomfor's search.js)
 2026-10-22 10:27 SPAWN: render-perf (need: 120-min results are ~4.4 MB JSON / 1 MB gzipped, heavy on mobile, per vijay-team's polygon review)
+2026-10-22 10:38 EVOLVE: map-overlay, settings-i18n, tile-qa energy 60 -> 70 (redesign PR #18 and walking layer; tile-qa caught the chip and panel bugs); render-perf 50 -> 35 (unused this round); no merge
+2026-10-22 10:38 SPAWN: street-walk (need: walking times must come from a real street network, engine uses straight-line discs; owns /t/mareri/walk and the walking outline)

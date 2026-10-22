@@ -4,7 +4,7 @@ type: capability
 domain: frontend
 tools: Read, Edit, Bash
 model: sonnet
-energy: 50
+energy: 35
 spawned: 2026-10-22
 can-merge-with: [map-overlay]
 ---

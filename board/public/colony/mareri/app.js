@@ -46,6 +46,46 @@
   var ISO_OPACITY = '0.6';
   var overlay = null;
 
+  // Real street-network walking area from the pin, drawn above the bands.
+  var walkPane = map.createPane('walk');
+  walkPane.style.zIndex = 450;
+  walkPane.style.pointerEvents = 'none';
+  var walkLayer = null;
+  var walkMinutes = null;
+  var walkToken = 0;
+
+  function clearWalk() {
+    walkToken++;
+    if (walkLayer) { map.removeLayer(walkLayer); walkLayer = null; }
+    walkMinutes = null;
+    $('walk-note').hidden = true;
+  }
+
+  function showWalkNote() {
+    if (walkMinutes === null) return;
+    $('walk-text').textContent = t('walkReal', { n: walkMinutes });
+    $('walk-note').hidden = false;
+  }
+
+  async function loadWalkArea(p, minutes) {
+    clearWalk();
+    if (params.get('stub') === '1' || !(minutes >= 1)) return;
+    var token = walkToken;
+    try {
+      var res = await fetch('/t/mareri/walk?lat=' + p.lat + '&lon=' + p.lng + '&minutes=' + minutes);
+      if (!res.ok) return;
+      var feature = await res.json();
+      if (token !== walkToken) return;
+      walkLayer = L.geoJSON(feature, {
+        pane: 'walk',
+        interactive: false,
+        style: { color: '#0f172a', weight: 2.5, dashArray: '6 5', fillColor: '#ffffff', fillOpacity: 0.12 }
+      }).addTo(map);
+      walkMinutes = minutes;
+      showWalkNote();
+    } catch (e) { /* optional layer: the isochrone stays valid without it */ }
+  }
+
   function showOrigin() {
     var p = pin.getLatLng();
     $('origin-out').textContent = p.lat.toFixed(5) + ', ' + p.lng.toFixed(5);
@@ -107,6 +147,7 @@
       b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
     });
     if (lastBands) renderLegend(lastBands);
+    showWalkNote();
     syncTravel();
   }
   document.querySelectorAll('.lang button').forEach(function (b) {
@@ -197,7 +238,7 @@
 
     if (overlay) { map.removeLayer(overlay); overlay = null; }
     var drawn = bands.filter(function (b) { return hasArea(b.feature.geometry); });
-    if (!drawn.length) { lastBands = null; $('legend').hidden = true; return false; }
+    if (!drawn.length) { lastBands = null; $('legend').hidden = true; clearWalk(); return false; }
 
     var group = L.featureGroup();
     // Bands are cumulative: paint the outermost first so nearer bands cover it.
@@ -337,6 +378,7 @@
         setStatus(t('err.empty'), true);
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
+        loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {
           panel.classList.add('collapsed');
           toggle.setAttribute('aria-expanded', 'false');
