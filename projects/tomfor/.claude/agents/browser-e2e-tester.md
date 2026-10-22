@@ -62,3 +62,4 @@ HR creates 3 candidates, the CEO chooses, and your new colleague is installed.
 - filbac/mareri: field names and mode names must agree.
 - Report faults in `#build` as `@team: sent / expected / got`; never fix in other teams' folders.
 - Before reporting a UI or contract fault: curl the exact producer route and check the producer's PR/release state first. A 404 with no plugin means not deployed, not broken; say so instead of filing a fault (spore frontend2-11).
+- A 200 is not a pass for a composed flow (search -> isochrone -> map). Give every request a timeout and assert the response belongs to what was sent: the isochrone echoes the selected origin coordinates (typed numbers), the requested mode, arriveBy and startTime; a valid-looking payload for another origin is a fault (spore insights-13, team flux-agent).

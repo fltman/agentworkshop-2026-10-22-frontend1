@@ -27,6 +27,7 @@
       // Walk-only mode (proposed, #build 272): additive, unused until mareri renders it.
       'mode.walk': 'Walk',
       legendWalk: 'Walking only, along streets',
+      'legend.walkEstimated': 'Beyond 30 min: estimate, not along streets',
       walkOnly: 'All transport types are off, so the map shows only how far you can walk in {n} min.',
       'err.walkUnavailable': 'The walking area could not be calculated right now. Turn on at least one transport type, or try again in a minute.',
       // Share link, screen-reader summary, departures card (#build 345 items 4, 6, 5): additive.
@@ -76,6 +77,7 @@
       'aria.sheetToggle': 'Visa eller dölj inställningar',
       'mode.walk': 'Gång',
       legendWalk: 'Endast gång, längs gator',
+      'legend.walkEstimated': 'Efter 30 min: uppskattning, inte längs gatorna',
       walkOnly: 'Alla trafikslag är avstängda, så kartan visar bara hur långt du hinner gå på {n} min.',
       'err.walkUnavailable': 'Gångområdet kunde inte beräknas just nu. Slå på minst ett trafikslag, eller försök igen om en minut.',
       shareLink: 'Dela länk',

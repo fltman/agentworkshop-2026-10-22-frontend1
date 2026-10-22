@@ -22,7 +22,8 @@ const { CASES } = { CASES: [
   { name: 'seam-29', lat: 59.3326, lon: 18.0649, maxMinutes: 29, stepMinutes: 10 },
   { name: 'seam-31', lat: 59.3326, lon: 18.0649, maxMinutes: 31, stepMinutes: 10 },
   { name: 'sodertalje-20x10', lat: 59.1955, lon: 17.6253, maxMinutes: 20, stepMinutes: 10 },
-  { name: 'bbox-edge-10x5', lat: 60.45, lon: 19.45, maxMinutes: 10, stepMinutes: 5 },
+  // Live since mareri PR 41: 60.45,19.45 has no walkable network, /walk answers 422 (the fixture predates that).
+  { name: 'bbox-edge-10x5', lat: 60.45, lon: 19.45, maxMinutes: 10, stepMinutes: 5, liveNotWalkable: true },
 ] };
 
 function load(extra = {}) {
@@ -39,12 +40,25 @@ const res = (status, body, headers = {}) => ({
   json: async () => (typeof body === 'string' ? JSON.parse(body) : JSON.parse(JSON.stringify(body))),
 });
 
-// Fake gateway + mareri replaying the captures. gateway: 'capture' | 'prewalk' | 'down' | FeatureCollection.
-function fakeFetch({ gateway = 'prewalk', mareri = 'capture', calls = [] } = {}) {
+// mareri's 422 bodies (live 2026-10-22, PR 41/42).
+const NOT_WALKABLE = { error: 'origin_not_walkable', message: 'This point is not on land you can walk from (water or no street nearby). Move the pin.',
+  message_sv: 'Den här punkten går inte att gå från (vatten eller ingen gata i närheten). Flytta nålen.' };
+const NO_NETWORK = { error: 'no_walkable_network', message: 'No walkable street network at this point.', message_sv: 'Inget gångbart gatunät vid den här punkten.' };
+
+// Fake gateway + mareri replaying the captures. gateway: 'capture' | 'prewalk' | 'down' | 'not_walkable' | FeatureCollection.
+// mareri: 'capture' | 'down' | 'no_network' (/walk 422). walkable: 'ok' | 'water' (/walkable 422) | 'down'.
+// /walkable calls are logged in `walkable` (array), not in `calls`.
+function fakeFetch({ gateway = 'prewalk', mareri = 'capture', walkable = 'ok', calls = [], walkableCalls = [] } = {}) {
   return async (url, init = {}) => {
+    if (url.includes('/t/mareri/walkable')) {
+      walkableCalls.push(url);
+      if (walkable === 'down') throw new TypeError('fetch failed');
+      return walkable === 'water' ? res(422, NOT_WALKABLE) : res(200, { walkable: true });
+    }
     calls.push(url);
     if (url.endsWith('/t/filbac/api/isochrone')) {
       if (gateway === 'down') throw new TypeError('fetch failed');
+      if (gateway === 'not_walkable') return res(422, NOT_WALKABLE);
       if (typeof gateway === 'object') return res(200, gateway);
       const b = JSON.parse(init.body);
       const c = CASES.find((c) => c.lat === b.origin.lat && c.lon === b.origin.lon && c.maxMinutes === b.maxTravelMinutes);
@@ -53,6 +67,7 @@ function fakeFetch({ gateway = 'prewalk', mareri = 'capture', calls = [] } = {})
     }
     if (url.includes('/t/mareri/walk')) {
       if (mareri === 'down') return res(502, { error: 'upstream_unavailable' });
+      if (mareri === 'no_network') return res(422, NO_NETWORK);
       const m = cap.mareri[url.slice(url.indexOf('/t/mareri/walk'))];
       if (!m) return res(404, { error: 'not_in_fixture', url });
       return res(m.status, m.body);
@@ -106,6 +121,7 @@ function checkBands(fc, c, { tol = 0.02, label = c.name } = {}) {
     assert.equal(p.to_min, p.toMinutes); assert.equal(p.from_min, p.fromMinutes);
     if (p.toMinutes > 30) assert.equal(p.source, 'estimate', 'beyond 30 min is an estimate');
     else assert(['street', 'estimate'].includes(p.source));
+    assert.equal(p.estimated, p.source === 'estimate', 'estimated flag follows source');
     assert(x.geometry && /Polygon$/.test(x.geometry.type));
   }
   for (let i = 0; i < f.length - 1; i++) {
@@ -144,6 +160,19 @@ if (!LIVE) {
     const share = outsideShare(fc.features[1].geometry, fc.features[0].geometry);
     assert(share > 0.02, 'expected the unrepaired seam to break nesting, got ' + share);
     findings.push('fallback seam unrepaired: 31-min straight-line band leaves ' + (share * 100).toFixed(0) + '% of the 30-min street band outside');
+  });
+
+  await test('bands beyond the street limit are estimated:true, with a legend note in EN and SV', async () => {
+    const fc = await W.fetchWalkBands(CASES.find((x) => x.name === 'seam-31'), { fetch: fakeFetch() });
+    const [outer, ...inner] = fc.features;
+    assert.equal(outer.properties.estimated, true); assert(inner.every((f) => f.properties.estimated === false));
+    assert.equal(fc.meta.estimatedFromMinutes, outer.properties.fromMinutes); assert.equal(fc.meta.streetMaxMinutes, 30);
+    assert.equal(W.legendText('en', fc).estimated, 'Beyond 30 min: estimate, not along streets');
+    assert.equal(W.legendText('sv', fc).estimated, 'Efter 30 min: uppskattning, inte längs gatorna');
+    const bare = W.markEstimated({ features: [{ properties: { fromMinutes: 30, toMinutes: 35 } }, { properties: { fromMinutes: 0, toMinutes: 30 } }] });
+    assert.deepEqual(bare.features.map((f) => f.properties.estimated), [true, false], 'no source: minutes > 30');
+    const all = await W.fetchWalkBands(CASES.find((x) => x.name === 'seam-29'), { fetch: fakeFetch() });
+    assert.equal(all.meta.estimatedFromMinutes, null); assert.equal(W.legendText('en', all).estimated, null);
   });
 
   await test('29 min stays all street, no seam repair', async () => {
@@ -202,6 +231,56 @@ if (!LIVE) {
     });
   });
 
+  const notWalkable = (e) => {
+    assert.equal(e.code, 'origin_not_walkable');
+    assert.match(W.errorText('en', e), /cannot walk from this point.*Move the pin/);
+    assert.match(W.errorText('sv', e), /Det går inte att gå från den här punkten.*Flytta nålen/);
+    return true;
+  };
+
+  await test('/walkable 422 origin_not_walkable -> origin_not_walkable, no band requests', async () => {
+    const calls = [], walkableCalls = [];
+    await assert.rejects(W.fetchWalkBands(CASES[0], { fetch: fakeFetch({ gateway: 'capture', walkable: 'water', calls, walkableCalls }) }), notWalkable);
+    assert.equal(walkableCalls.length, 1); assert.equal(calls.length, 0);
+  });
+
+  await test('/walkable down -> carries on to the gateway', async () => {
+    const fc = await W.fetchWalkBands(CASES[0], { fetch: fakeFetch({ gateway: 'capture', walkable: 'down' }) });
+    assert.equal(fc.meta.via, 'gateway');
+  });
+
+  await test('gateway passes 422 through -> origin_not_walkable, no mareri fallback', async () => {
+    const calls = [];
+    await assert.rejects(W.fetchWalkBands(CASES[0], { fetch: fakeFetch({ gateway: 'not_walkable', calls }) }), notWalkable);
+    assert.equal(calls.length, 1);
+  });
+
+  await test('fallback: mareri /walk 422 no_walkable_network -> origin_not_walkable, not estimate circles', async () => {
+    await assert.rejects(W.fetchWalkBands(CASES[0], { fetch: fakeFetch({ gateway: 'down', mareri: 'no_network' }) }), notWalkable);
+  });
+
+  await test('gateway estimate-only bands (it swallowed the 422) + /walk 422 -> origin_not_walkable', async () => {
+    const c = CASES[0];
+    const est = await W.fetchWalkBands(c, { fetch: fakeFetch({ gateway: 'down', mareri: 'down' }), repairSeam: false }).catch(() => null);
+    const gw = est || JSON.parse(JSON.stringify(cap.gateway['center-30x5'].body));
+    gw.features.forEach((f) => { f.properties.source = 'estimate'; }); gw.meta.source = 'estimate'; delete gw.meta.via;
+    const calls = [];
+    await assert.rejects(W.fetchWalkBands(c, { fetch: fakeFetch({ gateway: gw, mareri: 'no_network', calls }) }), notWalkable);
+    assert.equal(calls.length, 2, 'gateway + one /walk probe');
+    // Same estimate-only answer but mareri /walk is fine: keep the gateway bands.
+    const fc = await W.fetchWalkBands(c, { fetch: fakeFetch({ gateway: gw }) });
+    assert.equal(fc.meta.via, 'gateway');
+  });
+
+  await test('errors.js maps origin_not_walkable and no_walkable_network to error.origin_not_walkable', async () => {
+    const E = await import(new URL('../../../board/public/colony/tomfor/errors.js', here));
+    for (const body of [NOT_WALKABLE, NO_NETWORK]) {
+      assert.equal(E.classify({ status: 422, ...body }), 'origin_not_walkable');
+      assert.match(E.errorMessage('sv', { status: 422, ...body }).message, /Flytta nålen/);
+    }
+    assert.equal(E.classify({ status: 422 }), 'too_restrictive', 'a bare 422 still means too restrictive');
+  });
+
   await test('bad origin -> bad_request before any request', async () => {
     const calls = [];
     await assert.rejects(W.fetchWalkBands({ lat: 10, lon: 10 }, { fetch: fakeFetch({ calls }) }), { code: 'bad_request' });
@@ -241,11 +320,22 @@ if (!LIVE) {
   const W = load({ fetch });
   for (const c of CASES) {
     await test('live ' + c.name, async () => {
+      if (c.liveNotWalkable) {
+        await assert.rejects(W.fetchWalkBands(c, { base: BASE, fetch }), { code: 'origin_not_walkable' });
+        return;
+      }
       const t0 = Date.now();
       const fc = await W.fetchWalkBands(c, { base: BASE, fetch });
       console.log('      via', fc.meta.via, 'source', fc.meta.source, 'seamRepaired', !!fc.meta.seamRepaired, Date.now() - t0 + 'ms');
       if (fc.meta.via !== 'gateway') findings.push(c.name + ': gateway walk mode not live, used mareri fallback');
       checkBands(fc, c);
+    });
+  }
+  // 58.8,17.6: sea outside the street graph (/walk 422 no_walkable_network). 59.3235,18.06: Riddarfjärden, inside the
+  // graph (/walkable 422 origin_not_walkable). Both were the nesting fault in #build 427.
+  for (const [lat, lon] of [[58.8, 17.6], [59.3235, 18.06]]) {
+    await test('live not walkable ' + lat + ',' + lon + ' -> origin_not_walkable', async () => {
+      await assert.rejects(W.fetchWalkBands({ lat, lon, maxMinutes: 30, stepMinutes: 10 }, { base: BASE, fetch }), { code: 'origin_not_walkable' });
     });
   }
   await test('live gateway raw (no repair): nesting incl. 30-min seam', async () => {

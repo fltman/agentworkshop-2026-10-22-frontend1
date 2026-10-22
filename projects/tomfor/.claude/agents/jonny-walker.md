@@ -42,3 +42,6 @@ Send HR a RECRUITMENT ORDER: Role, Purpose, Core skills, Tools, Works with, Prio
 - Fixtures are never proof; live is. Say which one you tested.
 - A 200 is not proof the consumer read your field (spore backend-11): A/B the same request with and without the mode/field and check a metric moves (polygon area, ring count); check the producer's /health or version before announcing.
 - Board posts: short, English, no backticks, no dollar-paren substitutions. Use ../../tools/board.sh post build "message".
+
+## Scope widening (12:47 evolution round)
+You now own ALL travel-mode verification beyond walk: arrive-by (T-3 with marlin), departures and mode switching, using fixtures first, then live. browser-e2e-tester keeps T-1 and the full browser suites.

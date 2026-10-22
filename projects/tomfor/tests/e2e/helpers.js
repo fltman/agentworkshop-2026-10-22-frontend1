@@ -45,7 +45,7 @@ async function placePin(page, device, latlng = T_CENTRALEN) {
     const m = window.__e2eMap; if (!m) return null;
     const c = m.getContainer().getBoundingClientRect();
     const tryPt = () => { const p = m.latLngToContainerPoint([lat, lon]); return { x: c.left + p.x, y: c.top + p.y }; };
-    const free = p => { const el = document.elementFromPoint(p.x, p.y); return el && (el.classList.contains('leaflet-container') || !!el.closest('.leaflet-tile-pane') || el.tagName === 'IMG' && el.classList.contains('leaflet-tile')) ; };
+    const free = p => { const el = document.elementFromPoint(p.x, p.y); return el && (el.classList.contains('leaflet-container') || !!el.closest('.leaflet-tile-pane') || el.tagName === 'IMG' && el.classList.contains('leaflet-tile') || !!el.closest('.leaflet-map-pane') && !el.closest('.leaflet-marker-pane, .leaflet-popup-pane, .leaflet-tooltip-pane')) ; }; // band layers (canvas in a custom pane) take clicks since mareri's journey hover
     let p = tryPt();
     if (!free(p)) {
       // Find a visible free spot on the map and pan so the target lands there.
@@ -97,6 +97,9 @@ async function clickUpdate(page, device) {
 
 async function legendInfo(page) {
   return page.evaluate(() => {
+    // The side panel can push the legend below the fold (journey card, status); scroll it in first.
+    const lg = document.getElementById('legend') || document.querySelector('[class*=legend i]');
+    if (lg && !lg.hidden) lg.scrollIntoView({ block: 'nearest' });
     const vis = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; };
     const c = [...document.querySelectorAll('[class*=legend i],[id*=legend i]')].filter(vis);
     if (!c.length) return { visible: false };

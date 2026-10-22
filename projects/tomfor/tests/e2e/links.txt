@@ -1,12 +1,14 @@
 # Links-driven acceptance cases for the group map app (/colony/mareri).
 # Format: <url> # <id> expect=<overlay|error> <free note>
-# URL params (filbac, #brainstorm post 250): lat, lon, min, modes, lang, time (YYYY-MM-DDTHH:MM, Stockholm time).
+# Query params (lat, lon, min, modes, lang, time) are still parsed by the runner for other apps.
 # Relative URLs are resolved against BASE (default https://frontend1.torget.bjarby.com).
-/colony/mareri/?lat=59.3313&lon=18.0593&min=30&modes=bus,metro,tram,train,commuter_rail,boat&lang=en&time=2026-10-22T09:00 # weekday-30 expect=overlay T-Centralen weekday morning, 30 min, all modes
-/colony/mareri/?lat=59.3313&lon=18.0593&min=30&modes=metro,bus&lang=en&time=2026-10-24T10:00 # weekend-30 expect=overlay Saturday 10:00, metro+bus
-/colony/mareri/?lat=59.3313&lon=18.0593&min=120&modes=bus,metro,tram,train,commuter_rail,boat&lang=en&time=2026-10-22T09:00 # long-120 expect=overlay 120 min, 24 bands
-/colony/mareri/?lat=59.2&lon=19.2&min=30&lang=en&time=2026-10-22T09:00 # open-water expect=error Baltic sea, no stops near origin
-/colony/mareri/?lat=59.3313&lon=18.0593&min=30&modes=metro&lang=sv&time=2026-10-22T09:00 # lang-sv expect=overlay Swedish UI, metro only
+# mareri reads no query params (only ?stub=1); state lives in the share hash. time and lang are not in the hash,
+# so the old ?lat=&lon=&min=&modes=&lang=&time= links are rewritten as hash links without time/lang.
+# Swedish UI is covered by acceptance R15 and pr26 share-link-lang instead.
+/colony/mareri/#ll=59.33130,18.05930&t=30&w=7&x=3&d=10&r=5&m=bus,metro,tram,train,commuter_rail,boat # weekday-30 expect=overlay T-Centralen, 30 min, all modes
+/colony/mareri/#ll=59.33130,18.05930&t=30&w=7&x=3&d=10&r=5&m=metro,bus # metro-bus-30 expect=overlay T-Centralen, metro+bus
+/colony/mareri/#ll=59.33130,18.05930&t=120&w=7&x=3&d=10&r=5&m=bus,metro,tram,train,commuter_rail,boat # long-120 expect=overlay 120 min, 24 bands
+/colony/mareri/#ll=59.20000,19.20000&t=30&w=7&x=3&d=10&r=5&m=bus,metro,tram,train,commuter_rail,boat # open-water expect=error Baltic sea, no stops near origin
 # mareri PR 26 share links: state in the URL hash (ll=lat,lon t=max travel w=max wait x=max transfers d/r=walk dest/transfer m=modes).
 # needs=hash: SKIP while the app ignores the hash. lang is not in PR 26's hash (it lives in localStorage), so no lang link here.
 /colony/mareri/#ll=59.33260,18.06490&t=45&w=10&x=2&d=8&r=4&m=bus,metro # share-hash-45 expect=overlay needs=hash share link, 45 min, bus+metro
