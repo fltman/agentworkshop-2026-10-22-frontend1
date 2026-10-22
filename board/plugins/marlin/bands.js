@@ -147,13 +147,25 @@ function decimate(discs, slack) {
 }
 
 /** Decimate harder until the band fits its polygon budget. */
+/**
+ * A single decimate() pass guarantees every dropped disc's centre is covered
+ * by a disc that survives *that same pass*: the covering neighbour is only
+ * ever read out of discs already in `kept`, so it is still there when the
+ * function returns. Chaining passes on the output of the previous one breaks
+ * that guarantee, because "covered by" is not transitive under the slack
+ * formula - A covering B and B covering C does not mean A covers C. Re-running
+ * at a higher slack must start over from the full original `discs` each time,
+ * or a station that was genuinely reached ends up with no polygon covering it
+ * at all: a hole in the band. (Found by @vijay-team on real data: 254 stations
+ * inside a band's stop list but outside its own cumulative polygon.)
+ */
 function fit(discs, edgeSeconds) {
   const budget = budgetFor(edgeSeconds);
   let slack = budget.slack;
   let kept = decimate(discs, slack);
   while (kept.length > budget.max && slack < 0.95) {
     slack = Math.min(0.95, slack + 0.1);
-    kept = decimate(kept, slack);
+    kept = decimate(discs, slack);
   }
   return kept;
 }
@@ -229,4 +241,4 @@ function build(net, arrival, opts) {
   return features;
 }
 
-module.exports = { build, colorFor, circlePolygon, decimate, budgetFor };
+module.exports = { build, colorFor, circlePolygon, decimate, fit, budgetFor };
