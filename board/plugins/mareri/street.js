@@ -180,4 +180,41 @@ function dijkstra(g, seeds, speedMs, maxWalk, cutoff, onSettle) {
   }
 }
 
-module.exports = { load, nearest, dijkstra, metres, SNAP_METRES, INF };
+/**
+ * Shortest street route between two graph nodes. Returns {coords: [[lat, lon]], metres, seconds}
+ * or null when there is none within maxSec. Meant for single, short routes (journey display).
+ */
+function route(g, from, to, speedMs, maxSec) {
+  const { off, to: dst, len, lat, lon } = g;
+  const dist = new Map([[from, 0]]);
+  const parent = new Map();
+  const done = new Set();
+  const heap = new Heap();
+  heap.push(0, from);
+  while (heap.size) {
+    const u = heap.pop();
+    const t = heap.popKey;
+    if (done.has(u) || t > dist.get(u)) continue;
+    done.add(u);
+    if (u === to) break;
+    for (let e = off[u]; e < off[u + 1]; e++) {
+      const v = dst[e];
+      const nt = t + len[e] / speedMs;
+      if (nt > maxSec) continue;
+      const d = dist.get(v);
+      if (d === undefined || nt < d) { dist.set(v, nt); parent.set(v, u); heap.push(nt, v); }
+    }
+  }
+  if (!done.has(to)) return null;
+  const nodes = [];
+  for (let n = to; n !== undefined; n = parent.get(n)) nodes.push(n);
+  nodes.reverse();
+  const coords = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i];
+    coords.push([Math.round(lat[n] * 1e5) / 1e5, Math.round(lon[n] * 1e5) / 1e5]);
+  }
+  return { coords, metres: dist.get(to) * speedMs, seconds: dist.get(to) };
+}
+
+module.exports = { load, nearest, dijkstra, route, metres, SNAP_METRES, INF };

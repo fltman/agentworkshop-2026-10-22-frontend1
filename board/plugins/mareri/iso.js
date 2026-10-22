@@ -97,19 +97,29 @@ function transfersFor(net, g, sn, transferSeconds, speedMs) {
   return table;
 }
 
-/** Round-based connection scan, identical to marlin's but with explicit seeds and transfer table. */
-function search(net, q, seeds, table) {
+/**
+ * Round-based connection scan, identical to marlin's but with explicit seeds and transfer table.
+ * With trace = true it also records how every improvement was reached (an immutable label tree:
+ * recs[id] = {k, t, p, ...}, p = parent label), so a journey can be rebuilt for any stop.
+ */
+function search(net, q, seeds, table, trace) {
   const { startSec, maxTravelSeconds, maxWaitSeconds, maxTransfers, allowedModes, transferSeconds } = q;
   const stopCount = net.stops.length;
   const cutoff = startSec + maxTravelSeconds;
   const best = new Int32Array(stopCount).fill(INF);
   const prev = new Int32Array(stopCount).fill(INF);
+  const recs = trace ? [] : null;
+  const bestLab = trace ? new Int32Array(stopCount).fill(-1) : null;
+  let prevLab = trace ? new Int32Array(stopCount).fill(-1) : null;
 
   let originStops = 0;
   for (const [i, t] of seeds) {
     if (t > cutoff) continue;
     if (best[i] === INF) originStops++;
-    if (t < best[i]) { best[i] = t; prev[i] = t; }
+    if (t < best[i]) {
+      best[i] = t; prev[i] = t;
+      if (trace) { recs.push({ k: 'access', t, p: -1, stop: i }); prevLab[i] = bestLab[i] = recs.length - 1; }
+    }
   }
   if (originStops === 0) return { arrival: best, reached: 0, originStops: 0, rounds: 0 };
 
@@ -122,10 +132,13 @@ function search(net, q, seeds, table) {
   const { transferOffset, transferTo, transferSec } = table;
   const startIndex = engine.lowerBound(dep, startSec, connectionCount);
   const boarded = new Uint8Array(net.tripCount);
+  const boardConn = trace ? new Int32Array(net.tripCount) : null;
+  const boardParent = trace ? new Int32Array(net.tripCount) : null;
   let rounds = 0;
 
   for (let leg = 1; leg <= maxTransfers + 1; leg++) {
     const cur = prev.slice();
+    const curLab = trace ? prevLab.slice() : null;
     boarded.fill(0);
     let improved = false;
     rounds++;
@@ -139,9 +152,16 @@ function search(net, q, seeds, table) {
         if (ready === INF || ready > dep[c]) continue;
         if (leg > 1 && dep[c] - ready > maxWaitSeconds) continue;
         boarded[t] = 1;
+        if (trace) { boardConn[t] = c; boardParent[t] = prevLab[from[c]]; }
       }
       const a = arr[c];
-      if (a <= cutoff && a < cur[to[c]]) { cur[to[c]] = a; improved = true; }
+      if (a <= cutoff && a < cur[to[c]]) {
+        cur[to[c]] = a; improved = true;
+        if (trace) {
+          recs.push({ k: 'ride', t: a, p: boardParent[t], bc: boardConn[t], ac: c, stop: to[c] });
+          curLab[to[c]] = recs.length - 1;
+        }
+      }
     }
     if (!improved) break;
 
@@ -154,21 +174,28 @@ function search(net, q, seeds, table) {
           for (let k = transferOffset[s]; k < transferOffset[s + 1]; k++) {
             if (transferSec[k] > transferSeconds) continue;
             const t2 = t + transferSec[k];
-            if (t2 <= cutoff && t2 < cur[transferTo[k]]) { cur[transferTo[k]] = t2; walked = true; }
+            if (t2 <= cutoff && t2 < cur[transferTo[k]]) {
+              cur[transferTo[k]] = t2; walked = true;
+              if (trace) {
+                recs.push({ k: 'walk', t: t2, p: curLab[s], from: s, stop: transferTo[k] });
+                curLab[transferTo[k]] = recs.length - 1;
+              }
+            }
           }
         }
         if (!walked) break;
       }
     }
     for (let i = 0; i < stopCount; i++) {
-      if (cur[i] < best[i]) best[i] = cur[i];
+      if (cur[i] < best[i]) { best[i] = cur[i]; if (trace) bestLab[i] = curLab[i]; }
       prev[i] = cur[i];
     }
+    if (trace) prevLab = curLab;
   }
 
   let reached = 0;
   for (let i = 0; i < stopCount; i++) if (best[i] !== INF) reached++;
-  return { arrival: best, reached, originStops, rounds };
+  return { arrival: best, reached, originStops, rounds, recs, bestLab };
 }
 
 /** Pin -> stops: along streets where the pin and the stop snap, straight line otherwise. */

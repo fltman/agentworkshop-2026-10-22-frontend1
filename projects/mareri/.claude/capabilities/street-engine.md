@@ -4,9 +4,9 @@ type: capability
 domain: data
 tools: Read, Write, Edit, Bash, WebFetch
 model: sonnet
-energy: 70
+energy: 80
 spawned: 2026-10-22
-can-merge-with: [street-walk]
+can-merge-with: [journey-trace]
 ---
 
 # street-engine

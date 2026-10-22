@@ -108,7 +108,13 @@
     $('origin-out').textContent = p.lat.toFixed(5) + ', ' + p.lng.toFixed(5);
   }
   pin.on('drag', showOrigin);
-  map.on('click', function (e) { pin.setLatLng(e.latlng); showOrigin(); });
+  var suppressClickUntil = 0;
+  map.on('click', function (e) {
+    if (Date.now() < suppressClickUntil) return;
+    pin.setLatLng(e.latlng);
+    showOrigin();
+    setJourneyBody(null);
+  });
   showOrigin();
 
   // ---- Form setup ----
@@ -166,6 +172,8 @@
     if (lastBands) renderLegend(lastBands);
     showWalkNote();
     syncTravel();
+    if (journeyBody) $('journey-hint').textContent = t(canHover ? 'jHint' : 'jHintTouch');
+    rerenderJourney();
   }
   document.querySelectorAll('.lang button').forEach(function (b) {
     b.addEventListener('click', function () {
@@ -392,6 +400,208 @@
     }
   }
 
+  // ---- Journey: hover (or long-press) a point to see how you get there ----
+  var JOURNEY_URL = '/t/mareri/journey';
+  var canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  var journeyPane = map.createPane('journey');
+  journeyPane.style.zIndex = 470;
+  journeyPane.style.pointerEvents = 'none';
+  var journeyLayer = L.layerGroup().addTo(map);
+  var journeyBody = null;      // request behind the bands that are on screen
+  var journeyShown = null;     // {data, latlng}
+  var journeyTimer = null;
+  var journeyCtrl = null;
+  var journeyToken = 0;
+  var journeyCache = {};
+  var journeyCacheKeys = [];
+  var mapBusy = false;
+  var METRO_COLORS = { 10: '#1b6fd1', 11: '#1b6fd1', 13: '#d9261c', 14: '#d9261c', 17: '#1f9d55', 18: '#1f9d55', 19: '#1f9d55' };
+  var MODE_COLORS = { bus: '#1d4ed8', metro: '#d9261c', tram: '#7c3aed', train: '#d97706', commuter_rail: '#db2777', boat: '#0891b2' };
+
+  function legColor(leg) {
+    if (leg.mode === 'metro' && METRO_COLORS[leg.line]) return METRO_COLORS[leg.line];
+    return MODE_COLORS[leg.mode] || '#334155';
+  }
+
+  function hideJourney() {
+    journeyToken++;
+    clearTimeout(journeyTimer);
+    if (journeyCtrl) { journeyCtrl.abort(); journeyCtrl = null; }
+    journeyLayer.clearLayers();
+    journeyShown = null;
+  }
+
+  function journeyEl(tag, cls, text) {
+    var el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text !== undefined) el.textContent = text;
+    return el;
+  }
+
+  function journeyContent(d) {
+    var box = journeyEl('div', 'j-card');
+    var head = journeyEl('div', 'j-head');
+    head.appendChild(journeyEl('strong', 'j-total', t('minutes', { n: d.totalMinutes })));
+    var changes = d.transfers === 0 ? t('jDirect') : d.transfers === 1 ? t('jChange1') : t('jChanges', { n: d.transfers });
+    head.appendChild(journeyEl('span', 'j-sub', t('jArrive', { t: d.arriveTime }) + ' · ' + changes));
+    box.appendChild(head);
+    d.legs.forEach(function (leg, i) {
+      var row = journeyEl('div', 'j-row ' + leg.type);
+      if (leg.type === 'walk') {
+        row.appendChild(journeyEl('span', 'j-ico', '\uD83D\uDEB6'));
+        var txt = journeyEl('div', 'j-txt');
+        var last = i === d.legs.length - 1;
+        txt.appendChild(journeyEl('div', 'j-main', last || !leg.to.name
+          ? t('jWalkHere', { n: leg.minutes })
+          : t('jWalkTo', { n: leg.minutes, name: leg.to.name })));
+        txt.appendChild(journeyEl('div', 'j-meta', leg.meters + ' m' + (leg.street ? '' : ' · ' + t('jEstimatedWalk'))));
+        row.appendChild(txt);
+      } else {
+        var badge = journeyEl('span', 'j-badge', (MODE_ICONS[leg.mode] || '') + (leg.line ? ' ' + leg.line : ''));
+        badge.style.background = legColor(leg);
+        row.appendChild(badge);
+        var rt = journeyEl('div', 'j-txt');
+        rt.appendChild(journeyEl('div', 'j-main', leg.from.name + ' \u2192 ' + leg.to.name));
+        var meta = leg.depart + '\u2013' + leg.arrive + ' \u00B7 ' + t(leg.stops === 1 ? 'jStop1' : 'jStops', { n: leg.stops });
+        if (leg.waitMinutes > 0) meta += ' \u00B7 ' + t('jWait', { n: leg.waitMinutes });
+        rt.appendChild(journeyEl('div', 'j-meta', meta));
+        row.appendChild(rt);
+      }
+      box.appendChild(row);
+    });
+    if (d.legs.some(function (leg) { return leg.type === 'ride'; })) {
+      box.appendChild(journeyEl('div', 'j-meta', t('jSchematic')));
+    }
+    return box;
+  }
+
+  function journeyTooltip(content, latlng) {
+    var at = map.latLngToContainerPoint(latlng);
+    var tip = L.tooltip({
+      permanent: true, direction: at.x < map.getSize().x / 2 ? 'right' : 'left',
+      offset: [12, 0], opacity: 1, className: 'journey-tip', interactive: false
+    }).setLatLng(latlng).setContent(content).addTo(journeyLayer);
+    var rect = tip.getElement().getBoundingClientRect();
+    var bounds = map.getContainer().getBoundingClientRect();
+    var bottom = Math.min(bounds.bottom, window.innerHeight - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sheet-h') || 0));
+    var dx = Math.max(bounds.left + 8 - rect.left, Math.min(0, bounds.right - 8 - rect.right));
+    var dy = Math.max(bounds.top + 8 - rect.top, Math.min(0, bottom - 8 - rect.bottom));
+    tip.setLatLng(map.containerPointToLatLng([at.x + dx, at.y + dy]));
+  }
+
+  function journeyNotice(latlng, key) {
+    journeyLayer.clearLayers();
+    journeyShown = null;
+    journeyTooltip(journeyEl('div', 'j-card', t(key)), latlng);
+  }
+
+  function drawJourney(d, latlng) {
+    journeyLayer.clearLayers();
+    journeyShown = { data: d, latlng: latlng };
+    d.legs.forEach(function (leg) {
+      var pts = leg.path;
+      var base = { pane: 'journey', interactive: false, lineCap: 'round', lineJoin: 'round' };
+      if (leg.type === 'walk') {
+        L.polyline(pts, L.extend({ color: '#ffffff', weight: 7, opacity: 0.9 }, base)).addTo(journeyLayer);
+        L.polyline(pts, L.extend({ color: '#0f172a', weight: 3.5, dashArray: '1 6', opacity: 1 }, base)).addTo(journeyLayer);
+      } else {
+        L.polyline(pts, L.extend({ color: '#ffffff', weight: 9, opacity: 0.95 }, base)).addTo(journeyLayer);
+        L.polyline(pts, L.extend({ color: legColor(leg), weight: 5, opacity: 1 }, base)).addTo(journeyLayer);
+        [pts[0], pts[pts.length - 1]].forEach(function (p) {
+          L.circleMarker(p, { pane: 'journey', interactive: false, radius: 6, weight: 3, color: legColor(leg), fillColor: '#ffffff', fillOpacity: 1 }).addTo(journeyLayer);
+        });
+      }
+    });
+    var end = L.circleMarker([d.target.lat, d.target.lon], {
+      pane: 'journey', interactive: false, radius: 7, weight: 3, color: '#ffffff', fillColor: '#0f172a', fillOpacity: 1
+    });
+    end.addTo(journeyLayer);
+    journeyTooltip(journeyContent(d), latlng);
+  }
+
+  function rerenderJourney() {
+    if (journeyShown) drawJourney(journeyShown.data, journeyShown.latlng);
+  }
+
+  async function fetchJourney(latlng) {
+    if (!journeyBody) return;
+    var key = latlng.lat + ',' + latlng.lng;
+    var token = ++journeyToken;
+    if (journeyCtrl) journeyCtrl.abort();
+    if (journeyCache[key]) { drawJourney(journeyCache[key], latlng); return; }
+    var ctrl = new AbortController();
+    journeyCtrl = ctrl;
+    var timer = setTimeout(function () { ctrl.abort(); }, 8000);
+    try {
+      var body = Object.assign({}, journeyBody, { target: { lat: latlng.lat, lon: latlng.lng } });
+      var res = await fetch(JOURNEY_URL, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal
+      });
+      if (token !== journeyToken) return;
+      if (!res.ok) {
+        journeyNotice(latlng, res.status === 404 ? 'jUnreachable' : 'jUnavailable');
+        return;
+      }
+      var data = await res.json();
+      if (token !== journeyToken) return;
+      journeyCache[key] = data;
+      journeyCacheKeys.push(key);
+      if (journeyCacheKeys.length > 60) delete journeyCache[journeyCacheKeys.shift()];
+      drawJourney(data, latlng);
+    } catch (e) {
+      if (token === journeyToken) journeyNotice(latlng, 'jUnavailable');
+    } finally {
+      clearTimeout(timer);
+      if (journeyCtrl === ctrl) journeyCtrl = null;
+    }
+  }
+
+  function setJourneyBody(body) {
+    hideJourney();
+    journeyCache = {};
+    journeyCacheKeys = [];
+    journeyBody = body && params.get('stub') !== '1' ? body : null;
+    $('journey-hint').hidden = !journeyBody;
+    $('journey-hint').textContent = t(canHover ? 'jHint' : 'jHintTouch');
+  }
+
+  if (canHover) {
+    map.on('mousemove', function (e) {
+      if (!journeyBody || mapBusy) return;
+      hideJourney();
+      journeyTimer = setTimeout(function () { fetchJourney(e.latlng); }, 140);
+    });
+    map.on('mouseout', hideJourney);
+  }
+  map.on('dragstart zoomstart movestart', function () { mapBusy = true; hideJourney(); });
+  map.on('dragend zoomend moveend', function () { mapBusy = false; });
+  pin.on('dragstart', function () { setJourneyBody(null); });
+
+  // Touch: press and hold shows the journey; a tap elsewhere hides it again.
+  (function () {
+    var holdTimer = null;
+    var startX = 0, startY = 0;
+    var el = map.getContainer();
+    function cancel() { clearTimeout(holdTimer); holdTimer = null; }
+    el.addEventListener('pointerdown', function (ev) {
+      if (ev.pointerType !== 'touch' || !journeyBody || ev.target.closest('.leaflet-control, .leaflet-marker-icon')) return;
+      startX = ev.clientX; startY = ev.clientY;
+      var latlng = map.mouseEventToLatLng(ev);
+      cancel();
+      holdTimer = setTimeout(function () {
+        holdTimer = null;
+        suppressClickUntil = Date.now() + 700;
+        fetchJourney(latlng);
+      }, 450);
+    });
+    el.addEventListener('pointermove', function (ev) {
+      if (holdTimer && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 10) cancel();
+    });
+    el.addEventListener('pointerup', cancel);
+    el.addEventListener('pointercancel', cancel);
+  })();
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideJourney(); });
+
   $('form').addEventListener('submit', async function (ev) {
     ev.preventDefault();
     var body;
@@ -405,6 +615,7 @@
     btn.disabled = true;
     btn.classList.add('loading');
     setStatus(t('calculating'));
+    setJourneyBody(null);
     var started = performance.now();
     try {
       var fc = await callEngine(body);
@@ -412,6 +623,7 @@
         setStatus(t('err.empty'), true);
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
+        setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' ? body : null);
         if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
         else loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {

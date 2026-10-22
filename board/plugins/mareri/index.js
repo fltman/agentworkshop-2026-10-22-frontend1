@@ -15,6 +15,7 @@
 
 const zlib = require('zlib');
 const iso = require('./iso.js');
+const journey = require('./journey.js');
 
 const VALHALLA = 'https://valhalla1.openstreetmap.de/isochrone';
 const USER_AGENT = 'agentworkshop-mareri-isochrone-tile/1.0 (workshop demo)';
@@ -198,6 +199,50 @@ async function isochrone(req, res) {
   }
 }
 
+// ---- POST /journey: how you get to one point (hover on the map) ------------------------------
+
+function parseTarget(body) {
+  let input;
+  try { input = JSON.parse(body); } catch { return null; }
+  const t = input && input.target;
+  const lat = num(t && t.lat);
+  const lon = num(t && (t.lon !== undefined ? t.lon : t.lng));
+  if (!(Math.abs(lat) <= 90 && Math.abs(lon) <= 180)) return null;
+  return { lat, lon };
+}
+
+async function journeyRoute(req, res) {
+  const m = marlin();
+  if (!m || !m.state.store || !iso.available()) {
+    fail(res, 503, 'street_engine_unavailable', 'Street-based walking is not available right now.',
+      'Gångvägar via gatunätet är inte tillgängliga just nu.');
+    return;
+  }
+  try {
+    const body = await readBody(req);
+    const target = parseTarget(body);
+    if (!target) {
+      fail(res, 400, 'bad_request', 'target.lat and target.lon are required.', 'target.lat och target.lon krävs.');
+      return;
+    }
+    const q = m.parseRequest(body);
+    const out = journey.plan(m.state.store.get(q.dayType), q, target, { ApiError: m.ApiError, formatHHMM: m.formatHHMM });
+    if (!out || out.unreachable) {
+      fail(res, 404, 'not_reachable', 'No journey to this point within the time limit.', 'Ingen resa hit inom tidsgränsen.');
+      return;
+    }
+    sendJson(req, res, 200, out);
+  } catch (err) {
+    if (err instanceof m.ApiError) {
+      const [status, kind, message, messageSv] = m.ERRORS[err.code];
+      sendJson(req, res, status, { error: err.code, code: err.code, kind, message, message_sv: messageSv });
+      return;
+    }
+    console.error('[mareri] journey failed:', err && err.stack);
+    fail(res, 500, 'internal', 'Something went wrong while finding the journey.', 'Något gick fel när resan söktes.');
+  }
+}
+
 function colors(index, count) {
   try { return require('../marlin/bands.js').colorFor(index, count); } catch { return '#2b83ba'; }
 }
@@ -208,6 +253,11 @@ module.exports = {
     if (route === '/isochrone') {
       if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return true; }
       await isochrone(req, res);
+      return true;
+    }
+    if (route === '/journey') {
+      if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return true; }
+      await journeyRoute(req, res);
       return true;
     }
     if (req.method !== 'GET' || route !== '/walk') return false;
