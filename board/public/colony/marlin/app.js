@@ -167,17 +167,46 @@ async function update(event) {
   }
 }
 
+/**
+ * One pane for every band, not one pane per band.
+ *
+ * A band is a few hundred overlapping walking circles. Drawing them with a
+ * translucent fill makes every single circle visible, so the map looks like
+ * spilled bubbles instead of a reachable area. Giving each band its own
+ * translucent pane is no better: the bands are cumulative, so the outermost one
+ * covers the whole picture and tints everything painted on top of it.
+ *
+ * What works is a single pane holding every band, each drawn fully opaque, in
+ * the order the engine sent them (outermost first). Inside the pane the circles
+ * of one band merge into a flat shape and each nearer band completely hides the
+ * farther one, which is the ring picture we want. The translucency that lets
+ * the map show through is applied once, to the pane.
+ */
+const BAND_PANE = 'marlin-bands';
+
+function bandPane() {
+  if (!map.getPane(BAND_PANE)) {
+    const pane = map.createPane(BAND_PANE);
+    pane.style.zIndex = '400';
+    pane.style.opacity = '0.75';
+    pane.style.pointerEvents = 'none';
+  }
+  return BAND_PANE;
+}
+
 function draw(collection) {
   overlay.clearLayers();
-  // The engine returns cumulative bands, outermost first, so painting in array
-  // order lets the nearer bands cover the farther ones.
+  const pane = bandPane();
+  // Cumulative bands, outermost first: painting in array order lets each
+  // nearer band cover the farther one.
   for (const feature of collection.features) {
     if (!feature.geometry.coordinates.length) continue;
     L.geoJSON(feature, {
+      pane,
       style: {
         color: feature.properties.color,
         fillColor: feature.properties.color,
-        fillOpacity: 0.55,
+        fillOpacity: 1,
         weight: 0,
       },
       interactive: false,
