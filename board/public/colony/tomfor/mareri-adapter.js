@@ -104,7 +104,22 @@
       scenarioExport: 'Export',
       scenarioImport: 'Import',
       scenarioLocal: 'Saved only in this browser.',
-      'err.scenarioImportFailed': 'The file could not be read. Choose a file exported from this map.'
+      'err.scenarioImportFailed': 'The file could not be read. Choose a file exported from this map.',
+      // Timelapse, last trip home, export (vijay-team #build 527-528): additive.
+      timelapseTitle: 'Through the day',
+      timelapsePlay: 'Play',
+      timelapsePause: 'Pause',
+      timelapseLoading: 'Calculating {done} of {total} times…',
+      timelapseAt: '{time}: {count} stations',
+      lasthomeTitle: 'Last trip home',
+      lasthomeButton: 'Find the last trip home',
+      lasthomeSearching: 'Looking for the last departure…',
+      lasthomeLeaveBy: 'Leave by {time}',
+      lasthomeTravel: 'The trip takes at most {min} min',
+      lasthomeNone: 'No trip home within {max} min after {time}. Allow a longer travel time or move the home pin closer to a station.',
+      exportGeojson: 'Download area (GeoJSON)',
+      exportCsv: 'Download stations (CSV)',
+      shareOpened: 'Opened a shared search'
     },
     sv: {
       title: 'Restidskarta för Stockholm',
@@ -197,7 +212,22 @@
       scenarioExport: 'Exportera',
       scenarioImport: 'Importera',
       scenarioLocal: 'Sparas bara i den här webbläsaren.',
-      'err.scenarioImportFailed': 'Filen kunde inte läsas. Välj en fil som exporterats från den här kartan.'
+      'err.scenarioImportFailed': 'Filen kunde inte läsas. Välj en fil som exporterats från den här kartan.',
+      // Timelapse, last trip home, export (vijay-team #build 527-528): additive.
+      timelapseTitle: 'Under dagen',
+      timelapsePlay: 'Spela upp',
+      timelapsePause: 'Pausa',
+      timelapseLoading: 'Beräknar {done} av {total} tider …',
+      timelapseAt: '{time}: {count} stationer',
+      lasthomeTitle: 'Sista resan hem',
+      lasthomeButton: 'Hitta sista resan hem',
+      lasthomeSearching: 'Letar efter sista avgången …',
+      lasthomeLeaveBy: 'Åk senast {time}',
+      lasthomeTravel: 'Resan tar högst {min} min',
+      lasthomeNone: 'Ingen resa hem inom {max} min efter klockan {time}. Tillåt längre restid eller flytta hemnålen närmare en station.',
+      exportGeojson: 'Ladda ner området (GeoJSON)',
+      exportCsv: 'Ladda ner stationer (CSV)',
+      shareOpened: 'Öppnade en delad sökning'
     }
   };
 

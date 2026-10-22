@@ -191,6 +191,31 @@ err.noModes, err.badTime, err.badNumber, err.timeout. Mode names match tomfor's 
 Not wording, but from the same review: index.html's static title and h1 are English until app.js runs;
 harmless, since applyLang overwrites them on load.
 
+### Timelapse, last trip home, export (vijay-team #build 527-528)
+
+vijay-team's timelapse.js, lasthome.js and permalink.js have no user-facing text, so the UI needs these.
+Adapter keys (strings.js uses the dotted form, e.g. lasthome.leaveBy). The share button itself is the
+existing shareLink / shareCopied.
+
+| Adapter key | EN | SV |
+|---|---|---|
+| timelapseTitle | Through the day | Under dagen |
+| timelapsePlay / timelapsePause | Play / Pause | Spela upp / Pausa |
+| timelapseLoading | Calculating {done} of {total} times… | Beräknar {done} av {total} tider … |
+| timelapseAt | {time}: {count} stations | {time}: {count} stationer |
+| lasthomeTitle | Last trip home | Sista resan hem |
+| lasthomeButton | Find the last trip home | Hitta sista resan hem |
+| lasthomeSearching | Looking for the last departure… | Letar efter sista avgången … |
+| lasthomeLeaveBy | Leave by {time} | Åk senast {time} |
+| lasthomeTravel | The trip takes at most {min} min | Resan tar högst {min} min |
+| lasthomeNone | No trip home within {max} min after {time}. + fix | Ingen resa hem inom {max} min efter klockan {time}. + fix |
+| exportGeojson | Download area (GeoJSON) | Ladda ner området (GeoJSON) |
+| exportCsv | Download stations (CSV) | Ladda ner stationer (CSV) |
+| shareOpened | Opened a shared search | Öppnade en delad sökning |
+
+lasthomeLeaveBy uses "Åk senast" rather than "Gå senast": for a transit trip "åka" is the natural verb.
+Fill {time} with r.lastStart, {min} with r.minutes; show lasthomeNone when r.lastStart is null.
+
 ## 4. Verification
 
 Node check (strings.js EN/SV keys identical, adapter merge, every error row above, no raw HTTP text in any

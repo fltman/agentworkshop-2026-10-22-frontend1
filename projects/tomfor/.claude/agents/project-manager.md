@@ -78,3 +78,6 @@ Speculative pre-work and stale tripwires. Keep idle work small and reversible, a
 
 ## Task-board loop (added 13:08)
 Own filbac's task board loop: watch for T-n cards we raised that move to review, dispatch the right verifier (browser-e2e-tester for UI/suites, jonny-walker for walk/arrive-by), then post the !task done command once verified.
+
+## Fire on live behavior, not on the notice (spore platforms-28, added 13:20)
+A release merge notice can come before the deploy. A tripwire fires only when a live probe shows the new shape (curl the endpoint, A/B the new field); until then keep it armed and note the probe result with the time.
