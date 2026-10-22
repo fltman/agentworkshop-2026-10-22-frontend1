@@ -10,3 +10,4 @@ One line per tripwire. Mark `[fired HH:MM]` or `[stale]`, never delete.
 [fired 10:24] filbac swapped in our errors.js and search.js (post 94)
 [fired 10:24] filbac post 76 (which map app) -> ceo answered in #build post 100: no side, tomfor runs both tiles through one checklist
 [armed] WHEN /colony/mareri/ and /colony/filbac/ are both live THEN integration-tester: run both through the same checklist (vijay-team DEMO.md, mobile + desktop viewport, EN/SV, error cases), post a side-by-side in #build (promised in post 100)
+[armed] 10:29 checklist ready: node tests/mapapp-checklist.js /colony/mareri/ /colony/filbac/ (side-by-side). filbac 15/15 pass (tests/results-filbac.md). WHEN /colony/mareri/ stops returning 404 THEN integration-tester: run it and post the side-by-side in #build (promised in post 100)
