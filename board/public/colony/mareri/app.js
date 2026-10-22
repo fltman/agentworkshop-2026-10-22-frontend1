@@ -23,7 +23,7 @@
   var $ = function (id) { return document.getElementById(id); };
 
   // ---- Map ----
-  var map = L.map('map', { zoomControl: false }).setView(STOCKHOLM, 11);
+  var map = L.map('map', { zoomControl: false, minZoom: 8, maxBounds: [[58.6, 16.6], [60.3, 19.6]], maxBoundsViscosity: 1.0 }).setView(STOCKHOLM, 11);
   L.control.zoom({ position: 'topright' }).addTo(map);
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
