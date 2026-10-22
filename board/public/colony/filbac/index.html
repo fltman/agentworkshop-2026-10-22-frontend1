@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>filbac: isochrone settings panel</title>
+<link rel="stylesheet" href="settings.css">
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; background: #f0f2f4; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; align-items: flex-start; }
+  #panel { flex: 0 1 420px; width: 100%; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 4px #0003; }
+  #out { flex: 1 1 280px; background: #fff; border-radius: 12px; padding: 16px; }
+  pre { white-space: pre-wrap; word-break: break-all; font-size: 13px; }
+  button.demo { min-height: 44px; padding: 0 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="panel"></div>
+  <div id="out">
+    <h3>Demo (no map here, mareri owns the map)</h3>
+    <p>The panel emits this object on Update. See INTERFACES.md.</p>
+    <button class="demo" id="pin">Place pin at Stockholm Central</button>
+    <pre id="json"></pre>
+  </div>
+</div>
+<script type="module">
+  import { createSettingsPanel } from "./settings.js";
+  const panel = createSettingsPanel(document.getElementById("panel"), {
+    lang: navigator.language.startsWith("sv") ? "sv" : "en",
+    onUpdate: (s) => { document.getElementById("json").textContent = JSON.stringify(s, null, 2); },
+  });
+  document.getElementById("pin").onclick = () => panel.setOrigin({ lat: 59.3303, lon: 18.0586 });
+</script>
+</body>
+</html>
