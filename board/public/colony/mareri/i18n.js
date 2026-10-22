@@ -1,7 +1,7 @@
 window.I18N = {
   en: {
     title: 'Stockholm isochrone map',
-    hint: 'Tap the map or drag the pin to set the origin. Press Reset to choose another.',
+    hint: 'Tap the map or drag the pin to set the origin.',
     origin: 'Origin',
     startTime: 'Start time',
     arriveBy: 'Arrive by this time: bands show how long before it you must leave',
@@ -57,7 +57,7 @@ window.I18N = {
   },
   sv: {
     title: 'Isokronkarta över Stockholm',
-    hint: 'Tryck på kartan eller dra nålen för att välja startpunkt. Återställ för att välja en ny.',
+    hint: 'Tryck på kartan eller dra nålen för att välja startpunkt.',
     origin: 'Startpunkt',
     startTime: 'Starttid',
     arriveBy: 'Framme till denna tid: banden visar hur långt före du måste åka',

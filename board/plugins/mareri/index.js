@@ -170,7 +170,7 @@ function readBody(req) {
 function isoKey(q) {
   return [q.origin.lat.toFixed(5), q.origin.lon.toFixed(5), q.dayType, q.startSec, q.maxTravelSeconds,
     q.maxWaitSeconds, q.maxTransfers, q.allowedModes.slice().sort().join(','), q.walkSpeedMs.toFixed(3),
-    q.accessSeconds, q.egressSeconds, q.transferSeconds, q.bandSeconds].join('|');
+    q.accessSeconds, q.egressSeconds, q.transferSeconds, q.bandSeconds, q.walkOnly ? 'walk' : q.arriveBy ? 'rev' : 'fwd'].join('|');
 }
 
 const ORIGIN_SNAP_METRES = 80;
@@ -198,7 +198,14 @@ async function isochrone(req, res) {
     return;
   }
   try {
-    const q = m.parseRequest(await readBody(req));
+    const text = await readBody(req);
+    let raw = text;
+    try { raw = JSON.parse(text); } catch { /* parseRequest reports it */ }
+    // Walk-only (no transport types, or just "walk"): street walking for the whole budget, no transit search.
+    const rawModes = raw && typeof raw === 'object' && Array.isArray(raw.modes) ? raw.modes.filter((x) => x !== 'walk') : null;
+    const walkOnly = !!rawModes && rawModes.length === 0;
+    const q = m.parseRequest(walkOnly ? JSON.stringify(Object.assign({}, raw, { modes: ['bus'] })) : text);
+    if (walkOnly) { q.walkOnly = true; q.allowedModes = []; q.arriveBy = false; }
     if (!walkableOrigin(q.origin.lat, q.origin.lon)) { notWalkable(res); return; }
     const key = isoKey(q);
     const hit = isoCache.get(key);
@@ -215,7 +222,10 @@ async function isochrone(req, res) {
       type: 'FeatureCollection',
       meta: {
         origin: q.origin,
-        startTime: q.startISO,
+        arriveBy: !!q.arriveBy,
+        walkOnly: !!q.walkOnly,
+        startTime: q.arriveBy ? undefined : q.startISO,
+        deadline: q.arriveBy ? q.startISO : undefined,
         startTimeLocal: m.formatHHMM(q.startSec),
         day: q.dayType,
         bandMinutes: q.bandMinutes,
@@ -225,7 +235,7 @@ async function isochrone(req, res) {
         computedMs: out.computedMs,
         dataVersion: net.dataVersion,
         source: net.source,
-        algorithm: 'rounds+scan+street-walk',
+        algorithm: q.arriveBy ? 'rounds+scan+street-walk (reversed)' : 'rounds+scan+street-walk',
         cumulativeBands: true,
         walkingModel: 'street',
         walking: out.walking,
