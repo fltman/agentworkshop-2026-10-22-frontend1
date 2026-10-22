@@ -209,3 +209,10 @@ legend {
   .panel.collapsed .fields { display: none; }
   .legend { display: none; }
 }
+
+.note {
+  margin: 0.9rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--muted, #7b8794);
+}
