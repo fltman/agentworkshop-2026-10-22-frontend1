@@ -440,6 +440,32 @@
     return el;
   }
 
+  // Later departures of the same line from the boarding stop (vijay-team /departures; stop indices match marlin's).
+  var depCache = {};
+  function stockholmDayType() {
+    var start = journeyBody && journeyBody.startTime ? new Date(journeyBody.startTime) : new Date();
+    var wd = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Stockholm', weekday: 'short' }).format(start);
+    return wd === 'Sat' ? 'saturday' : wd === 'Sun' ? 'sunday' : 'weekday';
+  }
+  function loadNextDepartures(leg, el) {
+    if (typeof leg.from.stop !== 'number' || !leg.line) return;
+    var url = '/t/vijay-team/departures?stop=' + leg.from.stop + '&time=' + leg.depart +
+      '&day=' + stockholmDayType() + '&limit=50&modes=' + encodeURIComponent(leg.mode);
+    if (!depCache[url]) {
+      depCache[url] = fetch(url).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+    }
+    depCache[url].then(function (data) {
+      if (!data || !data.departures) return;
+      var own = data.departures.filter(function (x) { return x.route === leg.line && x.dep === leg.depart; })[0];
+      if (!own) return;
+      var times = data.departures.filter(function (x) { return x.route === leg.line && x.toIndex === own.toIndex && x.dep > leg.depart; })
+        .slice(0, 3).map(function (x) { return x.dep; });
+      if (!times.length) return;
+      el.textContent = t('jNext', { times: times.join(', ') });
+      el.hidden = false;
+    });
+  }
+
   function journeyContent(d) {
     var box = journeyEl('div', 'j-card');
     var head = journeyEl('div', 'j-head');
@@ -447,6 +473,7 @@
     var changes = d.transfers === 0 ? t('jDirect') : d.transfers === 1 ? t('jChange1') : t('jChanges', { n: d.transfers });
     head.appendChild(journeyEl('span', 'j-sub', t('jArrive', { t: d.arriveTime }) + ' · ' + changes));
     box.appendChild(head);
+    var firstRide = false;
     d.legs.forEach(function (leg, i) {
       var row = journeyEl('div', 'j-row ' + leg.type);
       if (leg.type === 'walk') {
@@ -467,6 +494,13 @@
         var meta = leg.depart + '\u2013' + leg.arrive + ' \u00B7 ' + t(leg.stops === 1 ? 'jStop1' : 'jStops', { n: leg.stops });
         if (leg.waitMinutes > 0) meta += ' \u00B7 ' + t('jWait', { n: leg.waitMinutes });
         rt.appendChild(journeyEl('div', 'j-meta', meta));
+        if (!firstRide) {
+          firstRide = true;
+          var next = journeyEl('div', 'j-meta j-next', '');
+          next.hidden = true;
+          rt.appendChild(next);
+          loadNextDepartures(leg, next);
+        }
         row.appendChild(rt);
       }
       box.appendChild(row);
