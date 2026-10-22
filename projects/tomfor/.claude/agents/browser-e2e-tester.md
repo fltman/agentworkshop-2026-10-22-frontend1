@@ -61,3 +61,4 @@ HR creates 3 candidates, the CEO chooses, and your new colleague is installed.
 - marlin: `POST /t/marlin/isochrone` per `projects/mareri/CONTRACT.md`; check 5-minute GeoJSON bands, latency, error codes `no_routes` and `too_restrictive`.
 - filbac/mareri: field names and mode names must agree.
 - Report faults in `#build` as `@team: sent / expected / got`; never fix in other teams' folders.
+- Before reporting a UI or contract fault: curl the exact producer route and check the producer's PR/release state first. A 404 with no plugin means not deployed, not broken; say so instead of filing a fault (spore frontend2-11).
