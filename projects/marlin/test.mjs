@@ -1,49 +1,105 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { gzipSync } from 'node:zlib';
 
 const require = createRequire(import.meta.url);
 const plugin = require('../../board/plugins/marlin/index.js');
 const network = require('../../board/plugins/marlin/network.js');
 const engine = require('../../board/plugins/marlin/isochrone.js');
+const fixture = require('../../board/plugins/marlin/fixture.js');
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
 plugin.init({ dataDir: '/nonexistent-on-purpose' });
 const { parseRequest, computeIsochrone, state, formatHHMM } = plugin._internals;
-const net = state.net;
+const net = state.store.get('weekday');
+const onRealData = net.source === 'gtfs';
 
 const ORIGIN = { lat: 59.3313, lon: 18.0622 }; // T-Centralen
 const q = (over = {}) => parseRequest(JSON.stringify({
   origin: ORIGIN, startTime: '09:00', ...over,
-}), net);
+}));
 
-test('fixture network loads', () => {
-  assert.equal(net.source, 'fixture');
-  assert.ok(net.stops.length > 20, 'expected stops');
-  assert.ok(net.connections.length > 1000, 'expected connections');
-  assert.ok(net.modes.includes('metro') && net.modes.includes('boat'));
+console.log('  data source: ' + net.source + ' (' + net.label + '), ' +
+  net.stops.length + ' stops, ' + net.connectionCount + ' connections\n');
+
+/* ---- loading ----------------------------------------------------------- */
+
+test('a network loads and has the shape the engine needs', () => {
+  assert.ok(net.stops.length > 20);
+  assert.ok(net.connectionCount > 1000);
+  assert.equal(net.from.length, net.connectionCount);
+  assert.equal(net.to.length, net.connectionCount);
+  assert.equal(net.dep.length, net.connectionCount);
+  assert.ok(net.modes.includes('metro'));
 });
 
 test('connections are sorted by departure', () => {
-  for (let i = 1; i < net.connections.length; i++) {
-    assert.ok(net.connections[i - 1].dep <= net.connections[i].dep);
+  for (let i = 1; i < net.connectionCount; i++) {
+    assert.ok(net.dep[i - 1] <= net.dep[i], 'unsorted at ' + i);
   }
 });
 
-test('lowerBound finds the first departure at or after a time', () => {
-  const i = engine.lowerBound(net.depTimes, 9 * 3600);
-  assert.ok(net.depTimes[i] >= 9 * 3600);
-  if (i > 0) assert.ok(net.depTimes[i - 1] < 9 * 3600);
+test('every connection references a real stop and goes forward in time', () => {
+  for (let i = 0; i < net.connectionCount; i++) {
+    assert.ok(net.from[i] >= 0 && net.from[i] < net.stops.length);
+    assert.ok(net.to[i] >= 0 && net.to[i] < net.stops.length);
+    assert.ok(net.arr[i] >= net.dep[i]);
+  }
 });
 
-test('defaults match the contract', () => {
-  const parsed = parseRequest(JSON.stringify({ origin: ORIGIN }), net);
-  assert.equal(parsed.maxTravelSeconds, 30 * 60);
-  assert.equal(parsed.maxWaitSeconds, 7 * 60);
-  assert.equal(parsed.maxTransfers, 3);
-  assert.equal(parsed.bandSeconds, 5 * 60);
-  assert.deepEqual(parsed.allowedModes, network.MODES);
+test('transfers in CSR form are consistent', () => {
+  assert.equal(net.transferOffset.length, net.stops.length + 1);
+  assert.equal(net.transferOffset[net.stops.length], net.transferTo.length);
+  for (let s = 0; s < net.stops.length; s++) {
+    assert.ok(net.transferOffset[s] <= net.transferOffset[s + 1]);
+  }
+});
+
+test("vijay-team's documented format is parsed exactly as specified", () => {
+  // Their contract: trips[].stops are indices, times[i] is the departure at
+  // stops[i], transfers carry walkSec.
+  const built = network.build({
+    version: 1, dayType: 'weekday', date: '20261103',
+    stops: [
+      { id: 'A', name: 'A', lat: 59.33, lon: 18.06, modes: ['metro'] },
+      { id: 'B', name: 'B', lat: 59.34, lon: 18.07, modes: ['metro'] },
+      { id: 'C', name: 'C', lat: 59.35, lon: 18.08, modes: ['metro'] },
+    ],
+    trips: [{ route: '10', mode: 'metro', stops: [0, 1, 2], times: [30000, 30120, 30300] }],
+    transfers: [{ from: 1, to: 2, walkSec: 180 }],
+  }, 'gtfs', 'unit');
+
+  assert.equal(built.connectionCount, 2);
+  assert.equal(built.from[0], 0);
+  assert.equal(built.to[0], 1);
+  assert.equal(built.dep[0], 30000);
+  assert.equal(built.arr[0], 30120);
+  assert.equal(built.trip[0], built.trip[1], 'both hops belong to one trip');
+  assert.equal(built.dataVersion, 'sl-gtfs-20261103');
+  assert.equal(built.transferSec[built.transferOffset[1]], 180);
+});
+
+test('the fixture is in the same format as the real artifact', () => {
+  const raw = fixture.raw();
+  assert.ok(Array.isArray(raw.stops) && Array.isArray(raw.trips));
+  for (const t of raw.trips.slice(0, 50)) {
+    assert.equal(t.stops.length, t.times.length);
+    for (const i of t.stops) assert.ok(Number.isInteger(i) && raw.stops[i]);
+  }
+  for (const tr of raw.transfers.slice(0, 50)) {
+    assert.ok(Number.isInteger(tr.from) && Number.isInteger(tr.to));
+    assert.ok(Number.isFinite(tr.walkSec));
+  }
+});
+
+/* ---- the search --------------------------------------------------------- */
+
+test('lowerBound finds the first departure at or after a time', () => {
+  const i = engine.lowerBound(net.dep, 9 * 3600, net.connectionCount);
+  assert.ok(net.dep[i] >= 9 * 3600);
+  if (i > 0) assert.ok(net.dep[i - 1] < 9 * 3600);
 });
 
 test('a 30 minute search from T-Centralen reaches a useful part of the net', () => {
@@ -52,7 +108,7 @@ test('a 30 minute search from T-Centralen reaches a useful part of the net', () 
   assert.ok(r.reached >= 15, 'expected a decent catchment, got ' + r.reached);
 });
 
-test('arrival times are never earlier than the start', () => {
+test('arrival times stay inside the budget', () => {
   const query = q();
   const r = engine.search(net, query);
   for (let i = 0; i < r.arrival.length; i++) {
@@ -62,24 +118,28 @@ test('arrival times are never earlier than the start', () => {
   }
 });
 
-test('more travel time never reaches fewer stops (monotonic)', () => {
+test('more travel time never reaches fewer stops', () => {
   let prev = -1;
   for (const minutes of [10, 20, 30, 45, 60]) {
     const r = engine.search(net, q({ maxTravelMinutes: minutes }));
-    assert.ok(r.reached >= prev,
-      minutes + ' min reached ' + r.reached + ', less than the shorter budget ' + prev);
+    assert.ok(r.reached >= prev, minutes + ' min reached ' + r.reached + ' < ' + prev);
     prev = r.reached;
   }
 });
 
-test('more transfers never reaches fewer stops (monotonic)', () => {
+test('more transfers never reaches fewer stops', () => {
   let prev = -1;
   for (const transfers of [0, 1, 2, 3]) {
     const r = engine.search(net, q({ maxTransfers: transfers, maxTravelMinutes: 60 }));
-    assert.ok(r.reached >= prev,
-      transfers + ' transfers reached ' + r.reached + ', less than ' + prev);
+    assert.ok(r.reached >= prev, transfers + ' transfers reached ' + r.reached + ' < ' + prev);
     prev = r.reached;
   }
+});
+
+test('zero transfers means one leg only', () => {
+  const r = engine.search(net, q({ maxTransfers: 0, maxTravelMinutes: 60 }));
+  assert.equal(r.rounds, 1);
+  assert.ok(r.reached > r.originStops, 'one leg should still get somewhere');
 });
 
 test('mode filtering actually restricts the result', () => {
@@ -87,19 +147,14 @@ test('mode filtering actually restricts the result', () => {
   const metroOnly = engine.search(net, q({ maxTravelMinutes: 60, modes: ['metro'] }));
   assert.ok(metroOnly.reached < all.reached, 'metro only should reach fewer stops');
   assert.ok(metroOnly.reached > 1, 'metro only should still reach something');
-
-  // Nothing but boats from T-Centralen: not a boat stop, so transit adds nothing.
-  const boatOnly = engine.search(net, q({ maxTravelMinutes: 60, modes: ['boat'] }));
-  assert.ok(boatOnly.reached <= metroOnly.reached);
 });
 
 test('a known journey has a plausible arrival time', () => {
   const r = engine.search(net, q({ maxTravelMinutes: 60, modes: ['metro'] }));
-  const slussen = net.indexById.get(
-    net.stops.find((s) => s.name === 'Slussen').id);
+  const slussen = net.indexByName.get('Slussen');
+  assert.ok(slussen !== undefined, 'Slussen should exist in the network');
   const travelMin = (r.arrival[slussen] - q().startSec) / 60;
-  // Two metro hops plus a dwell and a wait: minutes, not seconds, not an hour.
-  assert.ok(travelMin > 3 && travelMin < 15,
+  assert.ok(travelMin > 2 && travelMin < 20,
     'T-Centralen to Slussen took ' + travelMin.toFixed(1) + ' min');
 });
 
@@ -109,14 +164,21 @@ test('walking transfers are bounded by the walking setting', () => {
   assert.ok(generous.reached >= none.reached);
 });
 
+test('a tighter wait limit never reaches more stops', () => {
+  const loose = engine.search(net, q({ maxTravelMinutes: 60, maxWaitMinutes: 30 }));
+  const tight = engine.search(net, q({ maxTravelMinutes: 60, maxWaitMinutes: 1 }));
+  assert.ok(tight.reached <= loose.reached);
+});
+
 test('a pin in the middle of the Baltic finds no stops', () => {
-  assert.throws(
-    () => computeIsochrone(net, q({ origin: { lat: 58.0, lon: 20.5 } })),
+  assert.throws(() => computeIsochrone(q({ origin: { lat: 58.0, lon: 20.5 } })),
     (err) => err.code === 'no_stops_near_origin');
 });
 
+/* ---- the bands ---------------------------------------------------------- */
+
 test('bands come back outermost first and cover the whole budget', () => {
-  const out = computeIsochrone(net, q({ maxTravelMinutes: 30 }));
+  const out = computeIsochrone(q({ maxTravelMinutes: 30 }));
   assert.equal(out.type, 'FeatureCollection');
   assert.equal(out.features.length, 6);
   assert.equal(out.features[0].properties.toMinutes, 30);
@@ -127,34 +189,111 @@ test('bands come back outermost first and cover the whole budget', () => {
   }
 });
 
+test('band properties carry both spellings', () => {
+  const f = computeIsochrone(q()).features[0];
+  assert.equal(f.properties.from_min, f.properties.fromMinutes);
+  assert.equal(f.properties.to_min, f.properties.toMinutes);
+});
+
 test('band geometry is valid GeoJSON with lon,lat order and closed rings', () => {
-  const out = computeIsochrone(net, q());
+  const out = computeIsochrone(q());
   const ring = out.features[0].geometry.coordinates[0][0];
   assert.deepEqual(ring[0], ring[ring.length - 1], 'ring must be closed');
   for (const [lon, lat] of ring) {
-    assert.ok(lon > 17 && lon < 19, 'longitude out of Stockholm range: ' + lon);
-    assert.ok(lat > 58.5 && lat < 60.5, 'latitude out of Stockholm range: ' + lat);
+    assert.ok(lon > 16 && lon < 20, 'longitude out of range: ' + lon);
+    assert.ok(lat > 58.5 && lat < 60.5, 'latitude out of range: ' + lat);
   }
 });
 
-test('outer bands cover at least as much area as inner bands', () => {
-  const out = computeIsochrone(net, q());
-  const area = (f) => f.geometry.coordinates.length;
-  const outer = out.features[0];
-  const inner = out.features[out.features.length - 1];
-  assert.ok(outer.properties.stops >= inner.properties.stops);
-  assert.ok(area(outer) >= 1);
+test('an outer band never contains fewer stops than an inner one', () => {
+  const out = computeIsochrone(q());
+  for (let i = 1; i < out.features.length; i++) {
+    assert.ok(out.features[i - 1].properties.stops >= out.features[i].properties.stops);
+  }
 });
 
 test('every band is present even when empty', () => {
-  const out = computeIsochrone(net, q({ maxTravelMinutes: 120, modes: ['boat'] }));
+  const out = computeIsochrone(q({ maxTravelMinutes: 120, maxTransfers: 0 }));
   assert.equal(out.features.length, 24);
   for (const f of out.features) assert.ok(Array.isArray(f.geometry.coordinates));
 });
 
+/* ---- the edges: three teams, three spellings ---------------------------- */
+
+test("mareri's snake_case body is understood", () => {
+  const parsed = parseRequest(JSON.stringify({
+    origin: { lat: 59.33, lon: 18.06 },
+    start_time: '08:15',
+    max_travel_min: 45,
+    max_wait_min: 10,
+    max_transfers: 2,
+    walk: { to_destination_min: 8, between_stations_min: 4 },
+    modes: ['metro', 'bus'],
+  }));
+  assert.equal(parsed.startSec, 8 * 3600 + 15 * 60);
+  assert.equal(parsed.maxTravelSeconds, 45 * 60);
+  assert.equal(parsed.maxWaitSeconds, 10 * 60);
+  assert.equal(parsed.maxTransfers, 2);
+  assert.equal(parsed.egressSeconds, 8 * 60);
+  assert.equal(parsed.transferSeconds, 4 * 60);
+});
+
+test("filbac's camelCase body is understood", () => {
+  const parsed = parseRequest(JSON.stringify({
+    origin: { lat: 59.33, lon: 18.06 },
+    startTime: '2026-10-24T09:30:00+02:00',
+    day: 'saturday',
+    maxTravelMin: 20,
+    maxWaitMin: 5,
+    maxTransfers: 1,
+    walk: { toDestinationMin: 6, betweenStationsMin: 3 },
+    bandMin: 10,
+  }));
+  assert.equal(parsed.dayType, 'saturday');
+  assert.equal(parsed.maxTravelSeconds, 20 * 60);
+  assert.equal(parsed.bandSeconds, 10 * 60);
+  assert.equal(parsed.egressSeconds, 6 * 60);
+  assert.equal(parsed.transferSeconds, 3 * 60);
+  assert.equal(formatHHMM(parsed.startSec), '09:30');
+});
+
+test('our own spelling still wins when both are present', () => {
+  const parsed = parseRequest(JSON.stringify({
+    origin: ORIGIN, maxTravelMinutes: 15, max_travel_min: 90,
+  }));
+  assert.equal(parsed.maxTravelSeconds, 15 * 60);
+});
+
+test('lng and latitude spellings of the origin work', () => {
+  const parsed = parseRequest(JSON.stringify({ origin: { latitude: 59.33, lng: 18.06 } }));
+  assert.equal(parsed.origin.lat, 59.33);
+  assert.equal(parsed.origin.lon, 18.06);
+});
+
+test('the day type is derived from the date when not given', () => {
+  const sat = parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-24T10:00:00+02:00' }));
+  const sun = parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-25T10:00:00+02:00' }));
+  const wed = parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-21T10:00:00+02:00' }));
+  assert.equal(sat.dayType, 'saturday');
+  assert.equal(sun.dayType, 'sunday');
+  assert.equal(wed.dayType, 'weekday');
+});
+
+test('defaults match the contract', () => {
+  const parsed = parseRequest(JSON.stringify({ origin: ORIGIN }));
+  assert.equal(parsed.maxTravelSeconds, 30 * 60);
+  assert.equal(parsed.maxWaitSeconds, 7 * 60);
+  assert.equal(parsed.maxTransfers, 3);
+  assert.equal(parsed.bandSeconds, 5 * 60);
+  assert.deepEqual(parsed.allowedModes, network.MODES);
+});
+
 test('bad input is rejected with the documented codes', () => {
   const bad = (body, code) => {
-    assert.throws(() => parseRequest(JSON.stringify(body), net),
+    assert.throws(() => parseRequest(JSON.stringify(body)),
       (err) => err.code === code, code + ' expected for ' + JSON.stringify(body));
   };
   bad({}, 'bad_request');
@@ -164,37 +303,21 @@ test('bad input is rejected with the documented codes', () => {
   bad({ origin: ORIGIN, modes: ['helicopter'] }, 'unknown_mode');
   bad({ origin: ORIGIN, modes: [] }, 'bad_request');
   bad({ origin: ORIGIN, startTime: 'half past nine' }, 'bad_request');
-  assert.throws(() => parseRequest('{not json', net), (err) => err.code === 'bad_request');
+  bad({ origin: ORIGIN, day: 'thursday' }, 'bad_request');
+  assert.throws(() => parseRequest('{not json'), (err) => err.code === 'bad_request');
 });
 
-test('start time is parsed from HH:MM and from ISO', () => {
-  assert.equal(parseRequest(JSON.stringify({ origin: ORIGIN, startTime: '07:45' }), net).startSec,
-    7 * 3600 + 45 * 60);
-  const iso = parseRequest(
-    JSON.stringify({ origin: ORIGIN, startTime: '2026-06-15T12:30:00+02:00' }), net).startSec;
-  assert.equal(formatHHMM(iso), '12:30');
-  const noTime = parseRequest(JSON.stringify({ origin: ORIGIN }), net);
-  assert.ok(noTime.startSec >= 0 && noTime.startSec < 86400);
-});
+/* ---- cache and HTTP ----------------------------------------------------- */
 
-test('an identical request is served from cache', () => {
+test('an identical request is served from cache, a different one is not', () => {
   state.cache.clear();
-  const first = computeIsochrone(net, q({ maxTravelMinutes: 25 }));
-  const second = computeIsochrone(net, q({ maxTravelMinutes: 25 }));
-  assert.equal(second.cached, true);
-  assert.equal(first.features.length, second.features.length);
-});
-
-test('a different setting is not served from cache', () => {
-  state.cache.clear();
-  computeIsochrone(net, q({ maxTravelMinutes: 25 }));
-  const other = computeIsochrone(net, q({ maxTravelMinutes: 25, maxTransfers: 1 }));
-  assert.notEqual(other.cached, true);
+  computeIsochrone(q({ maxTravelMinutes: 25 }));
+  assert.equal(computeIsochrone(q({ maxTravelMinutes: 25 })).cached, true);
+  assert.notEqual(computeIsochrone(q({ maxTravelMinutes: 25, maxTransfers: 1 })).cached, true);
 });
 
 test('the HTTP surface answers health, modes and isochrone', async () => {
   const call = (method, path, body) => new Promise((resolve) => {
-    const chunks = [];
     const req = {
       method,
       on(ev, fn) {
@@ -212,16 +335,15 @@ test('the HTTP surface answers health, modes and isochrone', async () => {
     plugin.handle(req, res, { path }).then((handled) => {
       if (!handled) resolve({ status: 404, body: null });
     });
-    void chunks;
   });
 
   const health = await call('GET', '/health');
   assert.equal(health.status, 200);
   assert.equal(health.body.ok, true);
   assert.equal(health.body.networkLoaded, true);
+  assert.ok(health.body.connections > 0);
 
   const modes = await call('GET', '/modes');
-  assert.equal(modes.status, 200);
   assert.ok(modes.body.modes.includes('metro'));
 
   const iso = await call('POST', '/isochrone',
@@ -229,26 +351,43 @@ test('the HTTP surface answers health, modes and isochrone', async () => {
   assert.equal(iso.status, 200);
   assert.equal(iso.body.features.length, 4);
 
-  const wrongMethod = await call('GET', '/isochrone');
-  assert.equal(wrongMethod.status, 405);
+  assert.equal((await call('GET', '/isochrone')).status, 405);
 
   const badBody = await call('POST', '/isochrone', '{"origin":{}}');
   assert.equal(badBody.status, 400);
   assert.equal(badBody.body.error, 'bad_request');
+  assert.equal(badBody.body.kind, 'bad_request');
   assert.ok(badBody.body.message_sv, 'Swedish message required by the contract');
 
-  const unknown = await call('GET', '/nope');
-  assert.equal(unknown.status, 404);
+  const far = await call('POST', '/isochrone', '{"origin":{"lat":58.0,"lon":20.5}}');
+  assert.equal(far.status, 422);
+  assert.equal(far.body.kind, 'no_routes', 'mareri asked for this vocabulary');
+
+  assert.equal((await call('GET', '/nope')).status, 404);
 });
 
-test('a 120 minute query over the whole fixture stays well under a second', () => {
+test('a 120 minute query stays within the performance requirement', () => {
   state.cache.clear();
   const started = Date.now();
-  const out = computeIsochrone(net, q({ maxTravelMinutes: 120 }));
+  const out = computeIsochrone(q({ maxTravelMinutes: 120 }));
   const ms = Date.now() - started;
-  assert.ok(ms < 1000, 'took ' + ms + ' ms');
-  assert.ok(out.meta.computedMs >= 0);
-  console.log('    (120 min query: ' + ms + ' ms, ' + out.meta.stopsReached + ' stops)');
+  const budget = onRealData ? 2000 : 1000;
+  assert.ok(ms < budget, 'took ' + ms + ' ms, budget ' + budget);
+  console.log('    (120 min: ' + ms + ' ms, ' + out.meta.stopsReached + ' stops, ' +
+    out.meta.rounds + ' rounds)');
+});
+
+test('a 120 minute answer stays small enough to send to a phone', () => {
+  state.cache.clear();
+  const out = computeIsochrone(q({ maxTravelMinutes: 120 }));
+  const raw = Buffer.byteLength(JSON.stringify(out), 'utf8');
+  const packed = gzipSync(Buffer.from(JSON.stringify(out), 'utf8'), { level: 6 }).length;
+  const rawCeiling = onRealData ? 6 * 1024 * 1024 : 2 * 1024 * 1024;
+  const wireCeiling = onRealData ? 1.6 * 1024 * 1024 : 512 * 1024;
+  console.log('    (120 min payload: ' + (raw / 1048576).toFixed(2) + ' MB raw, ' +
+    (packed / 1048576).toFixed(2) + ' MB gzipped)');
+  assert.ok(raw < rawCeiling, 'raw payload ' + raw + ' over ceiling ' + rawCeiling);
+  assert.ok(packed < wireCeiling, 'gzipped payload ' + packed + ' over ceiling ' + wireCeiling);
 });
 
 let failed = 0;

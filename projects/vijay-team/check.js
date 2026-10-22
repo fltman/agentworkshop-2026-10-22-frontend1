@@ -38,5 +38,15 @@ for (const d of ['weekday', 'saturday', 'sunday']) {
   if (!has('Stockholm City', 'commuter_rail')) fail(`${d}: Stockholm City has no commuter_rail`);
   console.log(`${d}: ${N} stops, ${n.trips.length} trips, ${L} connections checked`);
 }
+const shapes = read('shapes');
+if (!shapes.routes.length) fail('shapes: no routes');
+for (const r of shapes.routes) {
+  if (!MODES.has(r.mode)) fail(`shapes: mode ${r.mode}`);
+  for (const l of r.lines) {
+    if (l.length < 2) fail(`shapes: short line on ${r.name}`);
+    for (const [lon, lat] of l) if (!(lon > 16 && lon < 20 && lat > 58 && lat < 60.5)) { fail(`shapes: point outside Stockholm on ${r.name}`); break; }
+  }
+}
+console.log(`shapes: ${shapes.routes.length} routes checked`);
 console.log(failures ? `FAILED (${failures})` : 'ALL PASS');
 process.exit(failures ? 1 : 0);

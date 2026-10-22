@@ -1,15 +1,15 @@
 'use strict';
 
 /**
- * Synthetic Stockholm network.
+ * Synthetic Stockholm network, in exactly the shape vijay-team's real artifact
+ * has (stops, trips with stop indices and times, directed walking transfers).
  *
- * Not real timetable data: a hand-built stand-in with realistic geography and
- * headways so the engine, the contract and the tile can be developed and tested
- * before vijay-team's preprocessed GTFS artifacts exist. Swapped out the moment
- * <dataDir>/network/ contains real files; nothing else in the engine changes.
+ * Not real timetable data: a stand-in with realistic geography and headways so
+ * the engine and its tests work even where the 2 MB GTFS artifacts are not
+ * available. Because it uses the real format, the loader has only one code
+ * path and the fixture cannot drift away from production.
  */
 
-// [name, lat, lon] along each line, roughly following the real alignments.
 const LINES = [
   {
     route: '17', mode: 'metro', headway: 5, hopSeconds: 110,
@@ -96,81 +96,22 @@ const LINES = [
       ['Nacka strand', 59.3135, 18.1660],
     ],
   },
+  {
+    route: '27', mode: 'train', headway: 20, hopSeconds: 210,
+    stops: [
+      ['Stockholm Östra', 59.3470, 18.0710],
+      ['Universitetet Öst', 59.3660, 18.0590],
+      ['Djursholms Ösby', 59.3960, 18.0680],
+      ['Täby centrum', 59.4440, 18.0700],
+    ],
+  },
 ];
 
-const SERVICE_START = 5 * 3600;   // first departure 05:00
-const SERVICE_END = 24 * 3600;    // last departure just before midnight
+const SERVICE_START = 5 * 3600;
+const SERVICE_END = 24 * 3600;
 const DWELL_SECONDS = 30;
-
-function raw() {
-  const stopsByName = new Map();
-  const stops = [];
-
-  function stopIdFor(name, lat, lon) {
-    let s = stopsByName.get(name);
-    if (!s) {
-      s = { id: 'S' + (stops.length + 1), name, lat, lon, modes: [] };
-      stopsByName.set(name, s);
-      stops.push(s);
-    }
-    return s;
-  }
-
-  const connections = [];
-
-  for (const line of LINES) {
-    const seq = line.stops.map(([name, lat, lon]) => stopIdFor(name, lat, lon));
-    for (const s of seq) if (!s.modes.includes(line.mode)) s.modes.push(line.mode);
-
-    // Both directions, one trip per headway, all week.
-    for (const direction of [1, -1]) {
-      const ordered = direction === 1 ? seq : seq.slice().reverse();
-      let tripNo = 0;
-      for (let t0 = SERVICE_START; t0 < SERVICE_END; t0 += line.headway * 60) {
-        const trip = line.route + ':' + (direction === 1 ? 'a' : 'b') + ':' + (tripNo++);
-        let t = t0;
-        for (let i = 0; i + 1 < ordered.length; i++) {
-          const dep = t;
-          const arr = dep + line.hopSeconds;
-          connections.push({
-            from: ordered[i].id,
-            to: ordered[i + 1].id,
-            dep, arr,
-            trip,
-            route: line.route,
-            mode: line.mode,
-            service: 'daily',
-          });
-          t = arr + DWELL_SECONDS;
-        }
-      }
-    }
-  }
-
-  // Walking transfers between stops that are close but not the same stop.
-  const transfers = [];
-  const WALK_SPEED_MS = 4.8 * 1000 / 3600;
-  for (let i = 0; i < stops.length; i++) {
-    for (let j = 0; j < stops.length; j++) {
-      if (i === j) continue;
-      const d = haversine(stops[i].lat, stops[i].lon, stops[j].lat, stops[j].lon);
-      if (d > 600) continue;
-      transfers.push({
-        from: stops[i].id,
-        to: stops[j].id,
-        seconds: Math.round(d / WALK_SPEED_MS),
-      });
-    }
-  }
-
-  return {
-    meta: { dataVersion: 'fixture-stockholm-v1', timezone: 'Europe/Stockholm' },
-    stops,
-    connections,
-    transfers,
-    calendar: { daily: { days: [0, 1, 2, 3, 4, 5, 6] } },
-  };
-}
+const WALK_SPEED_MS = 4.8 * 1000 / 3600;
+const TRANSFER_RADIUS_M = 600;
 
 function haversine(lat1, lon1, lat2, lon2) {
   const R = 6371000;
@@ -180,6 +121,62 @@ function haversine(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function raw() {
+  const stops = [];
+  const indexByName = new Map();
+
+  function indexFor(name, lat, lon) {
+    let i = indexByName.get(name);
+    if (i === undefined) {
+      i = stops.length;
+      indexByName.set(name, i);
+      stops.push({ id: 'S' + (i + 1), name, lat, lon, modes: [] });
+    }
+    return i;
+  }
+
+  const trips = [];
+
+  for (const line of LINES) {
+    const seq = line.stops.map(([name, lat, lon]) => indexFor(name, lat, lon));
+    for (const i of seq) {
+      if (!stops[i].modes.includes(line.mode)) stops[i].modes.push(line.mode);
+    }
+
+    for (const direction of [1, -1]) {
+      const ordered = direction === 1 ? seq : seq.slice().reverse();
+      for (let t0 = SERVICE_START; t0 < SERVICE_END; t0 += line.headway * 60) {
+        const times = [];
+        let t = t0;
+        for (let i = 0; i < ordered.length; i++) {
+          times.push(t);
+          t += line.hopSeconds + DWELL_SECONDS;
+        }
+        trips.push({ route: line.route, mode: line.mode, stops: ordered.slice(), times });
+      }
+    }
+  }
+
+  const transfers = [];
+  for (let i = 0; i < stops.length; i++) {
+    for (let j = 0; j < stops.length; j++) {
+      if (i === j) continue;
+      const d = haversine(stops[i].lat, stops[i].lon, stops[j].lat, stops[j].lon);
+      if (d > TRANSFER_RADIUS_M) continue;
+      transfers.push({ from: i, to: j, walkSec: Math.round(d / WALK_SPEED_MS) });
+    }
+  }
+
+  return {
+    version: 1,
+    dayType: 'weekday',
+    date: 'fixture',
+    stops,
+    trips,
+    transfers,
+  };
 }
 
 module.exports = { raw, haversine };

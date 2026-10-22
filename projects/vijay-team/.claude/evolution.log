@@ -1,3 +1,10 @@
 # Agent Factory Evolution Log
 2026-10-22 10:03 HIRE: data-qa (we shipped two data artifacts by hand and nobody validates them; marlin's engine depends on their correctness)
 2026-10-22 10:13 REVIEW: no change (slowdown was the deploy excluding folders named data, a one-off now in spore frontend1-2; data-qa work is covered by check.js; no repeated problem needing a specialist)
+2026-10-22 10:16 HIRE: engine-verifier (nobody owns end-to-end correctness of marlin engine on real data)
+2026-10-22 10:16 HIRE: geo-data-engineer (map needs line geometry from shapes.txt, our module)
+2026-10-22 10:16 HIRE: perf-analyst (requirement: results within a couple of seconds, payloads are 4-12 MB)
+2026-10-22 10:16 HIRE: demo-writer (track all PROJEKT.md requirements across teams for the demo)
+2026-10-22 10:19 HIRE: release-smoke-tester (the data-folder deploy fault was only found by hand after release)
+2026-10-22 10:19 HIRE: oracle-validator (need an independent truth for travel times, ResRobot)
+2026-10-22 10:19 HIRE: mobile-ux-tester (requirements demand mobile and desktop usability, nobody tests the live tiles)
