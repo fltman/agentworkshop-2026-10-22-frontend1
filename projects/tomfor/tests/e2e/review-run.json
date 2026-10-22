@@ -1,0 +1,93 @@
+{
+  "at": "2026-10-22T11:10:18.071Z",
+  "base": "https://frontend1.torget.bjarby.com",
+  "app": "/colony/mareri/",
+  "live": {
+    "desktop": {
+      "t4": false,
+      "t7": false
+    },
+    "phone": {
+      "t4": false,
+      "t7": false
+    }
+  },
+  "summary": {
+    "SKIP": 10,
+    "PASS": 2
+  },
+  "results": [
+    {
+      "id": "T-4 second click moves origin",
+      "viewport": "desktop",
+      "status": "SKIP",
+      "evidence": "placed pin ok; click at 59.34877,18.01535 after placing 59.33126,18.05929: pin stayed at 59.33126,18.05929"
+    },
+    {
+      "id": "T-4 drag moves origin after placement",
+      "viewport": "desktop",
+      "status": "SKIP",
+      "evidence": "drag pin +60,+40 px: 59.33126,18.05929 -> 59.33126,18.05929 (draggable class false), origin text \"59.33126, 18.05929\""
+    },
+    {
+      "id": "T-4 click after drag moves origin",
+      "viewport": "desktop",
+      "status": "SKIP",
+      "evidence": "click at 59.35245,18.00453 after drag: 59.33126,18.05929 -> 59.33126,18.05929"
+    },
+    {
+      "id": "T-4 double click only zooms",
+      "viewport": "desktop",
+      "status": "PASS",
+      "evidence": "double click at 59.35245,18.00453: zoom 13 -> 14, pin 59.33126,18.05929 -> 59.33126,18.05929"
+    },
+    {
+      "id": "T-7 minZoom holds",
+      "viewport": "desktop",
+      "status": "SKIP",
+      "evidence": "maxBounds none, minZoom none, viscosity 0; zoom-out button x10 -> z4; setZoom(minZoom-1) -> z4"
+    },
+    {
+      "id": "T-7 cannot pan to Paris",
+      "viewport": "desktop",
+      "status": "SKIP",
+      "evidence": "4 big drags SE -> centre 77.254,-59.146; panTo Paris -> centre 48.865,2.373 z4, view S,W,N,E 20.55,-53.88,67.03,58.62; expected centre within 58.7-60.4 N, 16.9-19.5 E"
+    },
+    {
+      "id": "T-4 second click moves origin",
+      "viewport": "phone",
+      "status": "SKIP",
+      "evidence": "placed pin ok; tap at 59.32759,18.0459 after placing 59.33126,18.05929: pin stayed at 59.33126,18.05929"
+    },
+    {
+      "id": "T-4 drag moves origin after placement",
+      "viewport": "phone",
+      "status": "SKIP",
+      "evidence": "drag pin +60,+40 px: 59.33126,18.05929 -> 59.33126,18.05929 (draggable class false), origin text \"59.33126, 18.05929\""
+    },
+    {
+      "id": "T-4 click after drag moves origin",
+      "viewport": "phone",
+      "status": "SKIP",
+      "evidence": "tap at 59.33109,18.0356 after drag: 59.33126,18.05929 -> 59.33126,18.05929"
+    },
+    {
+      "id": "T-4 double click only zooms",
+      "viewport": "phone",
+      "status": "PASS",
+      "evidence": "double tap at 59.33109,18.0356: zoom 13 -> 14, pin 59.33126,18.05929 -> 59.33126,18.05929"
+    },
+    {
+      "id": "T-7 minZoom holds",
+      "viewport": "phone",
+      "status": "SKIP",
+      "evidence": "maxBounds none, minZoom none, viscosity 0; zoom-out button x10 -> z4; setZoom(minZoom-1) -> z4"
+    },
+    {
+      "id": "T-7 cannot pan to Paris",
+      "viewport": "phone",
+      "status": "SKIP",
+      "evidence": "4 big drags SE -> centre 59.311,18.105; panTo Paris -> centre 48.865,2.373 z4, view S,W,N,E 18.73,-14.77,67.78,19.51; expected centre within 58.7-60.4 N, 16.9-19.5 E"
+    }
+  ]
+}

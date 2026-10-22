@@ -19,6 +19,10 @@ const CODE_TO_KEY = {
   unavailable: 'unavailable',
   unreachable: 'unreachable',
   walk_unavailable: 'walk_unavailable',
+  // mareri: /isochrone and /walkable say origin_not_walkable (water, >80 m from a street); /walk says
+  // no_walkable_network (outside the street network). Both mean: move the pin.
+  origin_not_walkable: 'origin_not_walkable',
+  no_walkable_network: 'origin_not_walkable',
 };
 
 // Accepts: {error:{code}}, {error:'code'}, {code}, {status}, {name:'AbortError'|'TimeoutError'},

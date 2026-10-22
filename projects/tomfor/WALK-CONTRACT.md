@@ -19,7 +19,7 @@ Classic script, no build step, no dependencies. Exposes `window.TomforWalk`.
 |---|---|
 | `TomforWalk.fetchWalkBands({lat, lon, maxMinutes=30, stepMinutes=5, speedKmh=4.8}, opts?)` | Promise of a FeatureCollection in marlin's band format with `meta.walkOnly: true` |
 | `TomforWalk.addWalkChip(container, onToggle(on), {on, lang, className}?)` | appends a `<button data-mode="walk" aria-pressed>` chip; returns it (`.refresh()` re-renders the label after a language switch) |
-| `TomforWalk.legendText(lang, fc)` | `{title, note, result}`: strings `legend.walkOnly`, `legend.walkOnly.note`, `result.walkOnly` |
+| `TomforWalk.legendText(lang, fc)` | `{title, note, result, estimated}`: strings `legend.walkOnly`, `legend.walkOnly.note`, `result.walkOnly`; `estimated` is `legend.walkEstimated` when any band has `estimated: true`, else `null` |
 | `TomforWalk.errorText(lang, err)` | one sentence plus fix for a rejected `fetchWalkBands` (via `TomforMareri.errorText` when loaded) |
 
 `opts`: `base` (default same origin), `fetch`, `timeoutMs` (20000), `gateway: false` (skip the gateway),
@@ -40,13 +40,20 @@ Classic script, no build step, no dependencies. Exposes `window.TomforWalk`.
    outside 24.6 % -> 0 %). On gateway answers the repair is a no-op safety net and `seamRepaired` stays unset; it only
    triggers on the `tomfor-fallback` path or an older gateway. If any street band fails, the gateway returns all bands
    as estimates.
+4. **Estimated bands** (2026-10-22): every band gets `properties.estimated: true|false`. True when `source` is
+   `"estimate"` (straight line, not along streets); bands without a `source` count as estimated when `toMinutes > 30`.
+   `meta.streetMaxMinutes: 30` and `meta.estimatedFromMinutes` (lowest `fromMinutes` of an estimated band, `null` if none).
+   Draw estimated bands dashed and show `legend.walkEstimated` ("Beyond 30 min: estimate, not along streets").
+   Why: mareri `/walk` caps at 30 min (400 beyond), so the gateway draws discs from 31 min. The reach is right
+   (35/30 = 1.18x) but the area jumps 2.2-2.6x instead of the 1.36x walking speed predicts, because the 30-min street
+   polygon fills only 55-62 % of its circle (tests/results-walk-beyond-30.md).
 
 ### Band format (same as marlin / gateway)
 
 - Cumulative, outermost first: `features[0].properties.toMinutes === maxMinutes`, last band has `fromMinutes: 0`,
   `features[i].fromMinutes === features[i+1].toMinutes`. Draw in array order.
-- `properties`: `fromMinutes, toMinutes, from_min, to_min, bandIndex, stops: 0, mode: "walk", source: "street"|"estimate"`.
-- `meta`: `walkOnly: true, modes: ["walk"], maxTravelMinutes, bandMinutes, speedKmh, source: street|estimate|mixed, cumulativeBands: true, via`.
+- `properties`: `fromMinutes, toMinutes, from_min, to_min, bandIndex, stops: 0, mode: "walk", source: "street"|"estimate", estimated: boolean`.
+- `meta`: `walkOnly: true, modes: ["walk"], maxTravelMinutes, bandMinutes, speedKmh, source: street|estimate|mixed, cumulativeBands: true, via, streetMaxMinutes: 30, estimatedFromMinutes`.
 - At most 24 bands (`bandMinutes` is widened if needed). `maxMinutes` 5..120, `stepMinutes` 1..30.
 
 ### Errors
@@ -56,6 +63,7 @@ Rejects with an `Error` whose `.code` is an `errors.js` code:
 | code | when | strings key |
 |---|---|---|
 | `bad_request` | origin outside the Stockholm region, minutes out of range (checked before any request) | `error.bad_request` |
+| `origin_not_walkable` | mareri says 422 `origin_not_walkable` (`/walkable` pre-check or gateway pass-through: water, >80 m from a street) or `no_walkable_network` (`/walk`: no network, e.g. sea at 58.8,17.6). Also when the gateway answers only estimate bands up to 30 min and one mareri `/walk` probe says 422. No estimate circles are drawn. | `error.origin_not_walkable(.fix)` |
 | `walk_unavailable` | gateway has no walk answer and every mareri `/walk` call failed | `error.walk_unavailable(.fix)` |
 | `timeout` | gateway timed out and the fallback failed too | `error.timeout` |
 | `offline` | `navigator.onLine === false` | `error.offline` |
@@ -63,8 +71,20 @@ Rejects with an `Error` whose `.code` is an `errors.js` code:
 ### Strings
 
 Chip label: `I18N[lang]['mode.walk']` (merged by `mareri-adapter.js`), then `TomforStrings.t` if present, then built-in
-EN/SV (same text as `strings.js`). Keys used: `mode.walk`, `legend.walkOnly`, `legend.walkOnly.note`, `result.walkOnly`,
-`error.walk_unavailable`, `error.walk_unavailable.fix`.
+EN/SV (same text as `strings.js`). Keys used: `mode.walk`, `legend.walkOnly`, `legend.walkOnly.note`, `legend.walkEstimated`, `result.walkOnly`,
+`error.walk_unavailable`, `error.walk_unavailable.fix`, `error.origin_not_walkable`, `error.origin_not_walkable.fix`.
+
+### Not walkable origins (mareri PR 41/42, 2026-10-22)
+
+`fetchWalkBands` first calls `GET /t/mareri/walkable?lat=&lon=` (skip with `opts.checkWalkable: false`); a 422 there
+rejects at once. Any other answer, or mareri down, carries on. errors.js maps both mareri codes to
+`error.origin_not_walkable`; a bare 422 without a code still means `too_restrictive`. WalkError carries
+`engineMessage` / `engineMessageSv` with mareri's own text.
+
+Live check 2026-10-22: 58.8,17.6 and 60.45,19.45 now 422 (nesting fault gone); 59.3235,18.06 (Riddarfjärden)
+/walkable 422. Still open: 59.8,19.0 is walkable but 25 min is 10.4 % outside 30 min (Valhalla generalisation, mareri
+calls it upstream). filbac's gateway turns mareri's 422 into 200 estimate bands (58.8,17.6) and does not check
+/walkable (59.3235,18.06 gives street bands from the water), so walk-mode.js detects both itself.
 
 ## Example
 

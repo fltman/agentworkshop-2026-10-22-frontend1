@@ -161,14 +161,14 @@ async function checkDesktopA11y(browser, live) {
     const alertOk = !!err.alertText || (err.status && err.status.text && /error/.test(err.status.cls) && err.status.live === 'assertive');
     rec('error-role-alert', dev, gate(live, alertOk), err.alertText ? `role=alert "${err.alertText}"` : `no visible role=alert; #status ${JSON.stringify(err.status)}`);
 
-    // Swedish copy: the engine-unavailable text must say Beräkningstjänsten, not Isokronmotorn.
+    // Swedish copy: the engine-unavailable text must use plain Swedish (Beräkningstjänsten or Restidsberäkningen), not Isokronmotorn.
     const sv = await page.evaluate(() => { const d = window.I18N && (window.I18N.sv || window.I18N.SV); return d ? Object.values(d).join('\n') : null; });
     if (!sv) rec('sv-copy-berakningstjansten', dev, 'SKIP', 'window.I18N.sv not found');
     else {
-      const iso = /Isokronmotorn/.test(sv), ber = /Beräkningstjänsten/.test(sv);
+      const iso = /Isokronmotorn/.test(sv), ber = /Beräkningstjänsten|Restidsberäkningen/.test(sv);
       const alt = (sv.match(/[^\n]*inte tillgänglig ännu[^\n]*/) || [''])[0];
       rec('sv-copy-berakningstjansten', dev, iso && !live ? 'SKIP' : !iso && ber ? 'PASS' : 'FAIL',
-        `Isokronmotorn present: ${iso}; Beräkningstjänsten present: ${ber}; unavailable text "${alt}"`);
+        `Isokronmotorn present: ${iso}; plain term present: ${ber}; unavailable text "${alt}"`);
     }
   } finally { await ctx.close(); }
 }

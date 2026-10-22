@@ -10,6 +10,10 @@
 
   var GATEWAY = '/t/filbac/api/isochrone';
   var MARERI_WALK = '/t/mareri/walk';
+  var MARERI_WALKABLE = '/t/mareri/walkable';
+  // mareri 422 codes for a pin you cannot walk from: /walkable and /isochrone say origin_not_walkable (water, far from
+  // a street, inside the street-graph area); /walk says no_walkable_network (outside any walkable network).
+  var NOT_WALKABLE = { origin_not_walkable: 1, no_walkable_network: 1 };
   var STREET_MAX = 30;
   var DETOUR = 1.3;
   var MAX_BANDS = 24;
@@ -21,9 +25,12 @@
       'mode.walk': 'Walk',
       'legend.walkOnly': 'Walking only, along streets',
       'legend.walkOnly.note': 'Walking time from the pin along streets, no public transport.',
+      'legend.walkEstimated': 'Beyond 30 min: estimate, not along streets',
       'result.walkOnly': 'All transport types are off, so the map shows only how far you can walk in {max} min.',
       'error.walk_unavailable': 'The walking area could not be calculated right now.',
       'error.walk_unavailable.fix': 'Turn on at least one transport type, or try again in a minute.',
+      'error.origin_not_walkable': 'You cannot walk from this point (water or no street nearby).',
+      'error.origin_not_walkable.fix': 'Move the pin onto or next to a street.',
       'error.bad_request': 'The request could not be understood.',
       'error.bad_request.fix': 'Move the pin inside the Stockholm region and check the settings.',
       'error.timeout': 'The walking area took too long to calculate.',
@@ -35,9 +42,12 @@
       'mode.walk': 'Gång',
       'legend.walkOnly': 'Endast gång, längs gator',
       'legend.walkOnly.note': 'Gångtid från nålen längs gatorna, utan kollektivtrafik.',
+      'legend.walkEstimated': 'Efter 30 min: uppskattning, inte längs gatorna',
       'result.walkOnly': 'Alla trafikslag är avstängda, så kartan visar bara hur långt du hinner gå på {max} min.',
       'error.walk_unavailable': 'Gångområdet kunde inte beräknas just nu.',
       'error.walk_unavailable.fix': 'Slå på minst ett trafikslag, eller försök igen om en minut.',
+      'error.origin_not_walkable': 'Det går inte att gå från den här punkten (vatten eller ingen gata i närheten).',
+      'error.origin_not_walkable.fix': 'Flytta nålen till eller intill en gata.',
       'error.bad_request': 'Förfrågan kunde inte tolkas.',
       'error.bad_request.fix': 'Flytta nålen inom Stockholmsregionen och kontrollera inställningarna.',
       'error.timeout': 'Det tog för lång tid att beräkna gångområdet.',
@@ -195,6 +205,67 @@
     return fc;
   }
 
+  // Flags each band that is not along streets: properties.estimated = true. Uses the band's source ("street" or
+  // "estimate", set by the gateway and our fallback); bands without a source count as estimated beyond STREET_MAX.
+  // meta.estimatedFromMinutes is the lowest fromMinutes of an estimated band (null if all are street bands).
+  function markEstimated(fc) {
+    var meta = fc.meta || (fc.meta = {});
+    var from = null;
+    fc.features.forEach(function (f) {
+      var p = f.properties || (f.properties = {});
+      var to = p.toMinutes != null ? p.toMinutes : p.to_min;
+      var fromMin = p.fromMinutes != null ? p.fromMinutes : p.from_min;
+      var est = p.source === 'estimate' || (p.source !== 'street' && to > STREET_MAX);
+      p.estimated = est;
+      if (est && (from == null || fromMin < from)) from = fromMin;
+    });
+    meta.streetMaxMinutes = STREET_MAX;
+    meta.estimatedFromMinutes = from;
+    return fc;
+  }
+
+  function isNotWalkable(status, j) {
+    if (status !== 422 || !j) return false;
+    var code = typeof j.error === 'string' ? j.error : (j.error && j.error.code) || j.code;
+    return !!NOT_WALKABLE[code];
+  }
+
+  function notWalkableError(j) {
+    return walkError('origin_not_walkable', (j && j.message) || 'No walkable street at this point.',
+      { status: 422, engineMessage: j && j.message, engineMessageSv: j && j.message_sv });
+  }
+
+  // GET /t/mareri/walkable: resolves to a WalkError when mareri says 422 origin_not_walkable, else null
+  // (walkable, unknown, or mareri down: then the band request decides).
+  function checkWalkable(q, base, fetchFn, ms) {
+    var url = base + MARERI_WALKABLE + '?lat=' + q.lat + '&lon=' + q.lon;
+    return timed(fetchFn, url, { headers: { accept: 'application/json' } }, ms).then(function (r) {
+      if (r.status !== 422) return null;
+      return r.json().catch(function () { return null; }).then(function (j) {
+        return isNotWalkable(422, j) ? notWalkableError(j) : null;
+      });
+    }, function () { return null; });
+  }
+
+  // The gateway (filbac) turns mareri's 422 into straight-line estimate bands. If every band up to 30 min is an
+  // estimate, ask mareri /walk once for the smallest band: a 422 there means the origin is not walkable.
+  function probeEstimateOnly(fc, q, base, fetchFn, ms) {
+    var street = fc.features.filter(function (f) {
+      var p = f.properties || {};
+      return (p.toMinutes != null ? p.toMinutes : p.to_min) <= STREET_MAX;
+    });
+    if (!street.length || street.some(function (f) { return f.properties.source !== 'estimate'; })) return Promise.resolve(fc);
+    var m = Math.min(q.step, STREET_MAX);
+    var url = base + MARERI_WALK + '?lat=' + q.lat + '&lon=' + q.lon + '&minutes=' + m + '&speedKmh=' + q.speed;
+    return timed(fetchFn, url, { headers: { accept: 'application/json' } }, ms).then(function (r) {
+      if (r.status !== 422) return fc;
+      return r.json().catch(function () { return null; }).then(function (j) {
+        if (isNotWalkable(422, j)) throw notWalkableError(j);
+        return fc;
+      });
+    }, function () { return fc; });
+  }
+
   function isWalkBands(j) {
     return !!(j && j.type === 'FeatureCollection' && j.meta && j.meta.walkOnly === true && Array.isArray(j.features));
   }
@@ -235,11 +306,18 @@
     var edges = edgesFor(q);
     var failures = 0;
     var streetTried = 0;
+    var notWalkable = null;
     return Promise.all(edges.map(function (m) {
       if (m > STREET_MAX) return { geometry: estimateCircle(q.lat, q.lon, m, q.speed), source: 'estimate' };
       streetTried++;
       var url = base + MARERI_WALK + '?lat=' + q.lat + '&lon=' + q.lon + '&minutes=' + m + '&speedKmh=' + q.speed;
       return timed(fetchFn, url, { headers: { accept: 'application/json' } }, ms).then(function (r) {
+        if (r.status === 422) {
+          return r.json().catch(function () { return null; }).then(function (j) {
+            if (isNotWalkable(422, j)) notWalkable = j;
+            throw new Error('mareri 422');
+          });
+        }
         if (!r.ok) throw new Error('mareri ' + r.status);
         return r.json();
       }).then(function (f) {
@@ -250,17 +328,19 @@
         return { geometry: estimateCircle(q.lat, q.lon, m, q.speed), source: 'estimate' };
       });
     })).then(function (parts) {
+      if (notWalkable) throw notWalkableError(notWalkable);
       if (streetTried > 0 && failures === streetTried) {
         throw walkError('walk_unavailable', 'Neither the gateway walk mode nor mareri /walk answered.');
       }
       var fc = wrap(q, edges, parts, t0);
-      return opts.repairSeam === false ? fc : repairSeam(fc);
+      return markEstimated(opts.repairSeam === false ? fc : repairSeam(fc));
     });
   }
 
   // fetchWalkBands({lat, lon, maxMinutes=30, stepMinutes=5, speedKmh=4.8}, {base, fetch, timeoutMs, gateway=true})
   // Resolves to a FeatureCollection in marlin's band format with meta.walkOnly true.
-  // Rejects with a WalkError whose .code is an errors.js code: bad_request, walk_unavailable, timeout, offline.
+  // Rejects with a WalkError whose .code is an errors.js code: bad_request, origin_not_walkable, walk_unavailable,
+  // timeout, offline. opts.checkWalkable=false skips the mareri /walkable pre-check.
   function fetchWalkBands(o, opts) {
     o = o || {};
     opts = opts || {};
@@ -276,21 +356,27 @@
       origin: { lat: q.lat, lon: q.lon }, modes: [], maxTravelMinutes: q.max, bandMinutes: Number(o.stepMinutes == null ? 5 : o.stepMinutes),
       walking: { speedKmh: q.speed },
     };
-    var viaGateway = opts.gateway === false ? Promise.resolve(null) : timed(fetchFn, base + GATEWAY, {
-      method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body),
-    }, ms).then(function (r) {
-      return r.json().catch(function () { return null; }).then(function (j) {
-        if (r.ok && isWalkBands(j)) {
-          j.meta.via = j.meta.via || 'gateway';
-          return opts.repairSeam === false ? j : repairSeam(j);
-        }
+    var pre = opts.checkWalkable === false ? Promise.resolve(null) : checkWalkable(q, base, fetchFn, ms);
+    return pre.then(function (notWalkable) {
+      if (notWalkable) throw notWalkable;
+      return opts.gateway === false ? null : timed(fetchFn, base + GATEWAY, {
+        method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body),
+      }, ms).then(function (r) {
+        return r.json().catch(function () { return null; }).then(function (j) {
+          if (isNotWalkable(r.status, j)) throw notWalkableError(j);
+          if (r.ok && isWalkBands(j)) {
+            j.meta.via = j.meta.via || 'gateway';
+            return probeEstimateOnly(j, q, base, fetchFn, ms).then(function (fc) {
+              return markEstimated(opts.repairSeam === false ? fc : repairSeam(fc));
+            });
+          }
+          return null;
+        });
+      }, function (e) {
+        if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) return 'timeout';
         return null;
       });
-    }, function (e) {
-      if (e && (e.name === 'AbortError' || e.name === 'TimeoutError')) return 'timeout';
-      return null;
-    });
-    return viaGateway.then(function (j) {
+    }).then(function (j) {
       if (j && j !== 'timeout') return j;
       return fallback(q, base, fetchFn, ms, opts).catch(function (e) {
         if (j === 'timeout') throw walkError('timeout', 'The walk request timed out.');
@@ -325,10 +411,15 @@
     return b;
   }
 
-  // Legend line and result sentence for a walk-only result.
+  // Legend line and result sentence for a walk-only result. .estimated is the legend note for dashed estimate bands,
+  // null when every band follows streets.
   function legendText(l, fc) {
     var max = fc && fc.meta && fc.meta.maxTravelMinutes;
-    return { title: text(l, 'legend.walkOnly'), note: text(l, 'legend.walkOnly.note'), result: text(l, 'result.walkOnly', { max: max }) };
+    var est = !!(fc && fc.features && fc.features.some(function (f) { return f.properties && f.properties.estimated; }));
+    return {
+      title: text(l, 'legend.walkOnly'), note: text(l, 'legend.walkOnly.note'), result: text(l, 'result.walkOnly', { max: max }),
+      estimated: est ? text(l, 'legend.walkEstimated') : null,
+    };
   }
 
   root.TomforWalk = {
@@ -340,6 +431,7 @@
     errorText: errorText,
     isWalkBands: isWalkBands,
     repairSeam: repairSeam,
+    markEstimated: markEstimated,
     _edges: function (o) { var q = validate(o); return q instanceof Error ? q : edgesFor(q); },
   };
 })(typeof window !== 'undefined' ? window : globalThis);

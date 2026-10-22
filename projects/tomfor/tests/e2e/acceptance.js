@@ -3,6 +3,8 @@
 // Run: PLAYWRIGHT_BROWSERS_PATH=.pw-browsers node tests/e2e/acceptance.js   (npm run e2e:acceptance)
 // Writes tests/e2e/acceptance-run.json and screenshots to tests/screenshots/acc-*.png.
 const fs = require('fs');
+// mareri posts to its street engine /t/mareri/isochrone and falls back to /t/marlin/isochrone.
+const ENGINE_RE = /\/t\/(mareri|marlin)\/isochrone(\?|$)/;
 const path = require('path');
 const H = require('./helpers');
 
@@ -72,6 +74,7 @@ async function setRange(page, id, v) {
   await page.evaluate(([id, v]) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }, [id, v]);
 }
 async function setModes(page, dev, want) { // want: array of mode values that should be checked
+  await openSheet(page);
   for (const cb of await page.locator('#modes input[type=checkbox]').all()) {
     const v = await cb.getAttribute('value');
     if ((await cb.isChecked()) !== want.includes(v)) {
@@ -80,6 +83,14 @@ async function setModes(page, dev, want) { // want: array of mode values that sh
       dev === 'phone' ? await tgt.tap() : await tgt.click();
     }
   }
+}
+// mareri #41-43: the origin locks after the first placement; Reset unlocks it (and resets the form).
+async function movePin(page, dev, ll) {
+  await openSheet(page);
+  const reset = page.locator('#reset-map');
+  if (await reset.count()) { await reset.scrollIntoViewIfNeeded(); dev === 'phone' ? await reset.tap() : await reset.click(); await page.waitForTimeout(300); }
+  await page.evaluate(([lat, lon]) => window.__e2eMap.setView([lat, lon], 12, { animate: false }), ll);
+  return H.placePin(page, dev, ll);
 }
 async function submit(page, dev) {
   await openSheet(page);
@@ -102,8 +113,8 @@ async function runDevice(browser, dev) {
   const bodies = [];
   const metas = []; const hosts = new Set();
   page.on('request', r => hosts.add(new URL(r.url()).host));
-  page.on('response', async r => { if (r.url().includes('/t/marlin/isochrone') && r.status() === 200) { try { const j = await r.json(); metas.push(j.meta || {}); } catch (e) {} } });
-  page.on('request', r => { if (r.url().includes('/t/marlin/isochrone') && r.method() === 'POST') { try { bodies.push(JSON.parse(r.postData())); } catch (e) {} } });
+  page.on('response', async r => { if (ENGINE_RE.test(r.url()) && r.status() === 200) { try { const j = await r.json(); metas.push(j.meta || {}); } catch (e) {} } });
+  page.on('request', r => { if (ENGINE_RE.test(r.url()) && r.method() === 'POST') { try { bodies.push(JSON.parse(r.postData())); } catch (e) {} } });
   await page.evaluate(() => localStorage.setItem('lang', 'en'));
   await page.reload({ waitUntil: 'networkidle' });
   if (!(await H.hasMap(page))) { rec('R1 map', dev, 'FAIL', 'Leaflet map instance not found'); return { log }; }
@@ -158,8 +169,9 @@ async function runDevice(browser, dev) {
       const after = await pinLatLng(page);
       const out2 = (await page.locator('#origin-out').innerText()).trim();
       const moved = before && after && (before[0] !== after[0] || before[1] !== after[1]);
-      dragEv = `drag pin ${moved ? 'moved' : 'did NOT move'} ${before} -> ${after}, origin text "${out2}"`;
-      results._dragMoved = results._dragMoved || {}; results._dragMoved[dev] = moved;
+      const locked = !(await m.evaluate(e => e.classList.contains('leaflet-marker-draggable')));
+      dragEv = `drag pin ${moved ? 'moved' : 'did NOT move'} ${before} -> ${after}, origin text "${out2}"${!moved && locked ? ' (origin locked after placement by design, Reset unlocks)' : ''}`;
+      results._dragMoved = results._dragMoved || {}; results._dragMoved[dev] = moved || locked;
     }
     // put pin back at T-Centralen for the calculations
     await H.placePin(page, dev, T_CENTRALEN);
@@ -287,28 +299,26 @@ async function runDevice(browser, dev) {
   // R16 errors
   const errs = {};
   {
-    // a) API failure: block /t/marlin with route interception (network abort), then a 503, then a 500 with a body.
-    await page.route('**/t/marlin/**', r => r.abort('failed'));
+    // a) API failure: block both engines with route interception (network abort), then a 503, then a 500 with a body.
+    await page.route(ENGINE_RE, r => r.abort('failed'));
     errs.abort = await submitAndSettle(page, dev);
     if (dev === 'desktop') await shot(page, 'desktop-api-blocked');
-    await page.unroute('**/t/marlin/**');
-    await page.route('**/t/marlin/isochrone', r => r.fulfill({ status: 503, contentType: 'text/html', body: '<h1>503</h1>' }));
+    await page.unroute(ENGINE_RE);
+    await page.route(ENGINE_RE, r => r.fulfill({ status: 503, contentType: 'text/html', body: '<h1>503</h1>' }));
     errs.s503 = await submitAndSettle(page, dev);
-    await page.unroute('**/t/marlin/isochrone');
-    await page.route('**/t/marlin/isochrone', r => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"internal"}' }));
+    await page.unroute(ENGINE_RE);
+    await page.route(ENGINE_RE, r => r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"internal"}' }));
     errs.s500 = await submitAndSettle(page, dev);
-    await page.unroute('**/t/marlin/isochrone');
+    await page.unroute(ENGINE_RE);
     // b) no routes: engine answers 200 with no reachable area (mocked), and the real engine with the pin in open water.
-    await page.route('**/t/marlin/isochrone', r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [], meta: { stopsReached: 0 } }) }));
+    await page.route(ENGINE_RE, r => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ type: 'FeatureCollection', features: [], meta: { stopsReached: 0 } }) }));
     errs.empty = await submitAndSettle(page, dev);
-    await page.unroute('**/t/marlin/isochrone');
-    await page.evaluate(([lat, lon]) => window.__e2eMap.setView([lat, lon], 12, { animate: false }), WATER);
-    await H.placePin(page, dev, WATER);
+    await page.unroute(ENGINE_RE);
+    await movePin(page, dev, WATER);
     errs.water = await submitAndSettle(page, dev);
     if (dev === 'phone') await shot(page, 'phone-no-routes');
     // c) too restrictive: real engine, T-Centralen, 5 min, 0 wait, 0 transfers, boat only, walk 0/0.
-    await page.evaluate(([lat, lon]) => window.__e2eMap.setView([lat, lon], 12, { animate: false }), T_CENTRALEN);
-    await H.placePin(page, dev, T_CENTRALEN);
+    await movePin(page, dev, T_CENTRALEN);
     await openSheet(page);
     await setRange(page, 'max-travel', 5); await setNumber(page, 'max-wait', 0); await setNumber(page, 'max-transfers', 0);
     await setNumber(page, 'walk-dest', 0); await setNumber(page, 'walk-transfer', 0);
@@ -329,7 +339,7 @@ async function runDevice(browser, dev) {
     const s = x => `"${x.status}"${x.isError ? '' : ' (not styled as error)'}${x.inView ? '' : ' [message NOT in view without scrolling]'}${x.layers ? `, ${x.layers} old band layers still on map` : ''}`;
     const generic = x => /something went wrong|HTTP \d|internal/i.test(x.status);
     rec('R16a error: API failure', dev, [errs.abort, errs.s503].every(x => x.isError && x.status && !generic(x)) ? (generic(errs.s500) || !errs.abort.inView ? 'PARTIAL' : 'PASS') : 'FAIL',
-      `/t/marlin blocked (abort): ${s(errs.abort)}; 503: ${s(errs.s503)}; 500 JSON without message: ${s(errs.s500)}`);
+      `isochrone engines (mareri street + marlin fallback) blocked (abort): ${s(errs.abort)}; 503: ${s(errs.s503)}; 500 JSON without message: ${s(errs.s500)}`);
     rec('R16b error: no routes', dev, errs.water.isError && errs.empty.isError ? (errs.water.inView ? 'PASS' : 'PARTIAL') : 'FAIL',
       `pin in open water (real engine): ${s(errs.water)}; mocked 200 with 0 features: ${s(errs.empty)}`);
     // A dedicated "settings too restrictive" message must name the settings, not just the walk.

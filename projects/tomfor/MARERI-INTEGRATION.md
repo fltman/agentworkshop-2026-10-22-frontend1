@@ -153,12 +153,68 @@ feed.outOfRange(.fix), arriveBy.*, returnTrip.*. No wheelchair wording anywhere:
 | returnTripLabel ({max}) | Places you can reach and get back from within {max} min | Platser du kan resa till och tillbaka från inom {max} min |
 | returnTripNone ({max}) | No place found that you can reach and get back from within {max} min. | Ingen plats hittades som du kan resa till och tillbaka från inom {max} min. |
 
+Round 2 features (#build 513, 517, 520), additive, both in `strings.js` (dotted names) and the adapter
+(camelCase). vijay-team's service-layer.js and compare.js unlock() carry their own EN/SV labels, and the
+max-time slider reuses maxTravel, so those are not duplicated. Housing has no data source yet, so no keys.
+
+| strings.js | adapter | EN | SV |
+|---|---|---|---|
+| disruption.title | disruptionTitle | What if a line is closed? | Tänk om en linje stängs? |
+| disruption.pick | disruptionPick | Close a line | Stäng en linje |
+| disruption.placeholder | disruptionPlaceholder | Line number, for example 17 | Linjenummer, till exempel 17 |
+| disruption.active ({route}) | disruptionActive | Without line {route} | Utan linje {route} |
+| disruption.stop | disruptionStop | Close this station | Stäng den här stationen |
+| disruption.stopActive ({stop}) | disruptionStopActive | Without {stop} | Utan {stop} |
+| disruption.reset | disruptionReset | Open all lines again | Öppna alla linjer igen |
+| disruption.lostArea ({pct}, {route}) | disruptionLostArea | {pct}% less reachable without line {route} | {pct} % mindre går att nå utan linje {route} |
+| disruption.lostStops ({count}, {max}, {route}) | disruptionLostStops | {count} fewer stations within {max} min without line {route} | {count} färre stationer inom {max} min utan linje {route} |
+| disruption.noEffect ({route}, {max}) | disruptionNoEffect | Closing line {route} changes nothing within {max} min. | Att stänga linje {route} ändrar ingenting inom {max} min. |
+| disruption.unknownRoute ({route}) | err.disruptionUnknownRoute | There is no line "{route}" in the timetable, so the map shows normal traffic. | Det finns ingen linje ”{route}” i tidtabellen, så kartan visar vanlig trafik. |
+| disruption.unknownRoute.fix | err.disruptionUnknownRouteFix | Check the line number, for example 17 or 4. | Kontrollera linjenumret, till exempel 17 eller 4. |
+| compare.title | compareTitle | Compare two times | Jämför två tider |
+| compare.gained ({time}) | compareGained | Reachable only at {time} | Nås bara klockan {time} |
+| compare.lost ({time}) | compareLost | No longer reachable at {time} | Nås inte längre klockan {time} |
+| compare.summary ({timeA}, {timeB}, {lost}, {gained}) | compareSummary | At {timeB}: {lost} stations lost and {gained} gained compared with {timeA} | Klockan {timeB}: {lost} stationer försvinner och {gained} tillkommer jämfört med {timeA} |
+| returnTrip.homeBy ({time}) | returnTripHomeBy | Home by {time} | Hemma senast {time} |
+| returnTrip.stay ({min}) | returnTripStay | Stay {min} min | Stanna {min} min |
+| returnTrip.stranded ({count}) | returnTripStranded | {count} places have no way back in time | {count} platser saknar resa tillbaka i tid |
+| scenario.save / name / saved ({name}) / list / empty / open / remove / export / import / local | scenarioSave … scenarioLocal | Save this view, Name, Saved as "{name}", Saved views, No saved views yet., Open, Delete, Export, Import, Saved only in this browser. | Spara den här vyn, Namn, Sparad som ”{name}”, Sparade vyer, Inga sparade vyer än., Öppna, Ta bort, Exportera, Importera, Sparas bara i den här webbläsaren. |
+| scenario.importFailed | err.scenarioImportFailed | The file could not be read. Choose a file exported from this map. | Filen kunde inte läsas. Välj en fil som exporterats från den här kartan. |
+
+Unknown route: marlin answers 200 with meta.excludedRoutes.matched 0 (no 400), so show
+disruption.unknownRoute when requested > matched.
+
 Keys we checked and left alone (already natural): hint, origin, startTime, maxTravel, maxWait,
 maxTransfers, walkDest, walkTransfer, modes, update, calculating, done, legend, minutes, mode.*,
 err.noModes, err.badTime, err.badNumber, err.timeout. Mode names match tomfor's exactly.
 
 Not wording, but from the same review: index.html's static title and h1 are English until app.js runs;
 harmless, since applyLang overwrites them on load.
+
+### Timelapse, last trip home, export (vijay-team #build 527-528)
+
+vijay-team's timelapse.js, lasthome.js and permalink.js have no user-facing text, so the UI needs these.
+Adapter keys (strings.js uses the dotted form, e.g. lasthome.leaveBy). The share button itself is the
+existing shareLink / shareCopied.
+
+| Adapter key | EN | SV |
+|---|---|---|
+| timelapseTitle | Through the day | Under dagen |
+| timelapsePlay / timelapsePause | Play / Pause | Spela upp / Pausa |
+| timelapseLoading | Calculating {done} of {total} times… | Beräknar {done} av {total} tider … |
+| timelapseAt | {time}: {count} stations | {time}: {count} stationer |
+| lasthomeTitle | Last trip home | Sista resan hem |
+| lasthomeButton | Find the last trip home | Hitta sista resan hem |
+| lasthomeSearching | Looking for the last departure… | Letar efter sista avgången … |
+| lasthomeLeaveBy | Leave by {time} | Åk senast {time} |
+| lasthomeTravel | The trip takes at most {min} min | Resan tar högst {min} min |
+| lasthomeNone | No trip home within {max} min after {time}. + fix | Ingen resa hem inom {max} min efter klockan {time}. + fix |
+| exportGeojson | Download area (GeoJSON) | Ladda ner området (GeoJSON) |
+| exportCsv | Download stations (CSV) | Ladda ner stationer (CSV) |
+| shareOpened | Opened a shared search | Öppnade en delad sökning |
+
+lasthomeLeaveBy uses "Åk senast" rather than "Gå senast": for a transit trip "åka" is the natural verb.
+Fill {time} with r.lastStart, {min} with r.minutes; show lasthomeNone when r.lastStart is null.
 
 ## 4. Verification
 

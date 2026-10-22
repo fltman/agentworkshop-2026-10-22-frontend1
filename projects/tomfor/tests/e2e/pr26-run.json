@@ -2,66 +2,66 @@
   "runner": "pr26",
   "base": "https://frontend1.torget.bjarby.com",
   "app": "/colony/mareri/",
-  "finishedAt": "2026-10-22T09:52:02.163Z",
-  "live": false,
-  "journeyStatus": 404,
-  "pass": 0,
-  "fail": 0,
-  "skip": 9,
+  "finishedAt": "2026-10-22T11:10:33.052Z",
+  "live": true,
+  "journeyStatus": 400,
+  "pass": 5,
+  "fail": 4,
+  "skip": 0,
   "results": [
     {
       "id": "meta-colony-group-app",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "meta[name=colony] content=null"
+      "status": "PASS",
+      "evidence": "meta[name=colony] content=\"group-app\""
     },
     {
       "id": "slider-aria-valuetext",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "initial null, after 45 null"
+      "status": "PASS",
+      "evidence": "initial \"30 min\", after 45 \"45 min\""
     },
     {
       "id": "focus-ring-on-tab",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "16/29 tab stops without outline/box-shadow: input#start-time, input#max-wait, input#max-transfers, input#walk-dest, input#walk-transfer, input[checkbox]"
+      "status": "FAIL",
+      "evidence": "1/29 tab stops without outline/box-shadow: input#start-time"
     },
     {
       "id": "error-role-alert",
       "viewport": "desktop",
-      "status": "SKIP",
+      "status": "FAIL",
       "evidence": "no visible role=alert; #status {\"role\":\"status\",\"live\":\"polite\",\"cls\":\"error\",\"text\":\"Could not reach the server. Check your connection and try again.\"}"
     },
     {
       "id": "sv-copy-berakningstjansten",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "Isokronmotorn present: true; Beräkningstjänsten present: false; unavailable text \"Isokronmotorn är inte tillgänglig ännu. Försök igen senare.\""
+      "status": "PASS",
+      "evidence": "Isokronmotorn present: false; plain term present: true; unavailable text \"Restidsberäkningen är inte tillgänglig ännu. Försök igen senare.\""
     },
     {
       "id": "touch-targets-44",
       "viewport": "phone",
-      "status": "SKIP",
-      "evidence": "13 below 44px: div \"leaflet-marker-icon pin \" 36x44, a \"Zoom in\" 40x40, a \"Zoom out\" 40x40, button[button] \"Toggle settings\" 356x30, button[button] \"EN\" 40x36, button[button] \"SV\" 40x36, input[range] \"30\" 356x36, input[checkbox] \"bus\" 79x38"
+      "status": "FAIL",
+      "evidence": "2 below 44px: div \"leaflet-marker-icon pin \" 36x44, input[range] \"30\" 356x36"
     },
     {
       "id": "dvh-units",
       "viewport": "phone",
-      "status": "SKIP",
-      "evidence": "no dvh in same-origin stylesheets"
+      "status": "PASS",
+      "evidence": "stylesheet uses dvh"
     },
     {
       "id": "share-link",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "no location.hash after Update (pin true, lang true)"
+      "status": "PASS",
+      "evidence": "hash #ll=59.33249%2C18.06496&t=45&w=10&x=2&d=8&r=4&a=0&m=bus%2Cmetro restored pin+settings+modes"
     },
     {
       "id": "share-link-lang",
       "viewport": "desktop",
-      "status": "SKIP",
-      "evidence": "no hash"
+      "status": "FAIL",
+      "evidence": "fresh page opened in en (html lang en); hash has no lang key: true"
     }
   ]
 }
