@@ -83,6 +83,24 @@ const I18N = {
   },
 };
 
+// Converts a panel settings object to the body of POST /t/marlin/isochrone (see projects/marlin/CONTRACT.md).
+export function toEngineRequest(s) {
+  return {
+    origin: { lat: s.origin.lat, lon: s.origin.lon },
+    startTime: s.startTime,
+    maxTravelMinutes: s.maxTravelMin,
+    maxWaitMinutes: s.maxWaitMin,
+    maxTransfers: s.maxTransfers,
+    modes: s.modes,
+    walking: {
+      accessMinutes: s.walk.toDestinationMin,
+      egressMinutes: s.walk.toDestinationMin,
+      transferMinutes: s.walk.betweenStationsMin,
+    },
+    bandMinutes: s.bandMin,
+  };
+}
+
 export function dayFromDate(d) {
   const w = d.getDay();
   return w === 0 ? "sunday" : w === 6 ? "saturday" : "weekday";

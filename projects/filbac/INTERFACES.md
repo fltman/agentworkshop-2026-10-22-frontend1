@@ -42,6 +42,18 @@ panel.setOrigin({ lat, lon });      // called by the map when the pin moves
 `BANDS` = colours per 5-minute band, so the map overlay and legend match:
 `[{ fromMin: 0, toMin: 5, color: "#..." }, ...]`.
 
+## Engine request adapter
+
+`toEngineRequest(settings)` (exported from settings.js) maps the settings object to marlin's
+`POST /t/marlin/isochrone` body: maxTravelMin to maxTravelMinutes, maxWaitMin to maxWaitMinutes,
+walk.toDestinationMin to walking.accessMinutes and walking.egressMinutes, walk.betweenStationsMin to
+walking.transferMinutes, bandMin to bandMinutes. Example:
+
+```js
+const body = toEngineRequest(settings);
+const res = await fetch("/t/marlin/isochrone", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+```
+
 ## Offered to others
 
 - mareri: use the panel and `BANDS` for the overlay colours.
