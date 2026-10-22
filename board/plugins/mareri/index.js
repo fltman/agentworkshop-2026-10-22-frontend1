@@ -15,6 +15,7 @@
 
 const zlib = require('zlib');
 const iso = require('./iso.js');
+const street = require('./street.js');
 const journey = require('./journey.js');
 
 const VALHALLA = 'https://valhalla1.openstreetmap.de/isochrone';
@@ -172,6 +173,23 @@ function isoKey(q) {
     q.accessSeconds, q.egressSeconds, q.transferSeconds, q.bandSeconds].join('|');
 }
 
+const ORIGIN_SNAP_METRES = 80;
+
+/** False when the pin lies inside the street graph's area but not near any street (water, forest, ...). */
+function walkableOrigin(lat, lon) {
+  const g = street.load();
+  if (!g || !g.bbox) return true;
+  const b = g.bbox;
+  if (lat < b.minLat || lat > b.maxLat || lon < b.minLon || lon > b.maxLon) return true;
+  const hit = street.nearest(g, lat, lon);
+  return !!hit && hit.metres <= ORIGIN_SNAP_METRES;
+}
+
+function notWalkable(res) {
+  fail(res, 422, 'origin_not_walkable', 'This point is not on land you can walk from (water or no street nearby). Move the pin.',
+    'Den här punkten går inte att utgå från (vatten eller ingen gata i närheten). Flytta nålen.');
+}
+
 async function isochrone(req, res) {
   const m = marlin();
   if (!m || !m.state.store || !iso.available()) {
@@ -181,6 +199,7 @@ async function isochrone(req, res) {
   }
   try {
     const q = m.parseRequest(await readBody(req));
+    if (!walkableOrigin(q.origin.lat, q.origin.lon)) { notWalkable(res); return; }
     const key = isoKey(q);
     const hit = isoCache.get(key);
     if (hit) {
@@ -290,6 +309,13 @@ module.exports = {
     if (route === '/journey') {
       if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return true; }
       await journeyRoute(req, res);
+      return true;
+    }
+    if (route === '/walkable' && req.method === 'GET') {
+      const w = new URL(req.url, 'http://x').searchParams;
+      const lat = Number(w.get('lat')), lon = Number(w.get('lon'));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) { fail(res, 400, 'bad_request', 'lat and lon are required.', 'lat och lon krävs.'); return true; }
+      if (!walkableOrigin(lat, lon)) notWalkable(res); else sendJson(req, res, 200, { walkable: true });
       return true;
     }
     if (req.method !== 'GET' || route !== '/walk') return false;

@@ -72,3 +72,7 @@ Returns one journey with `origin`, `target`, `startTime`, `arriveTime`, `totalMi
 - UI language: English and Swedish, switchable, remembered in localStorage.
 - "Walk to destination" feeds both `accessMinutes` and `egressMinutes`.
 - `?stub=1` runs against a local stub (`stub.js`) instead of the engine, for testing.
+
+## Origin must be walkable
+
+`POST /t/mareri/isochrone` and `GET /t/mareri/walkable?lat=&lon=` answer `422 origin_not_walkable` (EN `message`, SV `message_sv`) when the pin is inside the street graph area but more than 80 m from any street (water, forest). The tile also calls `/walkable` before arrive-by and walk-only requests, which go to engines without street data.

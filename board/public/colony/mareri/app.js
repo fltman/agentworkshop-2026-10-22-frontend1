@@ -383,6 +383,21 @@
     return e.isNetwork || e.status === 404 || e.status === 405 || e.status >= 500;
   }
 
+  async function checkWalkable(body, ctrl) {
+    var r;
+    try {
+      r = await fetch('/t/mareri/walkable?lat=' + body.origin.lat + '&lon=' + body.origin.lon, { signal: ctrl.signal });
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      return;
+    }
+    if (r.status !== 422) return;
+    var d = await r.json().catch(function () { return {}; });
+    var err = new Error((lang === 'sv' ? d.message_sv : d.message) || d.message || 'not walkable');
+    err.status = 422;
+    throw err;
+  }
+
   async function callEngine(body) {
     if (params.get('stub') === '1' && window.StubEngine) return window.StubEngine(body);
     if (inflight) inflight.abort();
@@ -391,6 +406,7 @@
     var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     try {
       try {
+        if (body.arriveBy || !body.modes.length) await checkWalkable(body, ctrl); // engines that do not know the streets
         if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl);
         if (body.arriveBy) return await postEngine(FALLBACK_ENGINE_URL, body, ctrl); // reverse search lives in marlin
         return await postEngine(ENGINE_URL, body, ctrl);
