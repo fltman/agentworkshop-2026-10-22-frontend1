@@ -287,6 +287,14 @@ function parseRequest(body) {
   const maxTransfers = num(
     pick(input, ['maxTransfers', 'max_transfers', 'maxConnections', 'max_connections']),
     3, 0, 8, 'maxTransfers');
+  // Extra cost per transfer (vijay-team, post 500): consumed out of the
+  // travel budget once per transit-to-transit transfer, so a route needing
+  // more transfers has to arrive that much earlier to still count. Walking
+  // transfers are unaffected - they are not counted against maxTransfers
+  // either, so the two stay consistent.
+  const transferPenaltyMinutes = num(
+    pick(input, ['transferPenaltyMinutes', 'transfer_penalty_minutes', 'transferPenaltyMin']),
+    0, 0, 30, 'transferPenaltyMinutes');
 
   const speedKmh = num(pick(walk, ['speedKmh', 'speed_kmh', 'speed']),
     4.8, 1, 10, 'walking.speedKmh');
@@ -321,6 +329,7 @@ function parseRequest(body) {
     maxTravelSeconds: Math.round(maxTravelMinutes * 60),
     maxWaitSeconds: Math.round(maxWaitMinutes * 60),
     maxTransfers: Math.round(maxTransfers),
+    transferPenaltySeconds: Math.round(transferPenaltyMinutes * 60),
     allowedModes: modes,
     walkSpeedMs: speedKmh * 1000 / 3600,
     accessSeconds: Math.round(accessMinutes * 60),
@@ -369,7 +378,7 @@ function resolveExcludeStops(net, names) {
 function cacheKey(q) {
   return [
     q.origin.lat.toFixed(5), q.origin.lon.toFixed(5), q.dayType, q.startSec, q.arriveBy,
-    q.maxTravelSeconds, q.maxWaitSeconds, q.maxTransfers,
+    q.maxTravelSeconds, q.maxWaitSeconds, q.maxTransfers, q.transferPenaltySeconds,
     q.allowedModes.slice().sort().join(','),
     q.walkSpeedMs.toFixed(3), q.accessSeconds, q.egressSeconds,
     q.transferSeconds, q.bandSeconds,
@@ -447,6 +456,7 @@ function computeIsochrone(q) {
       day: q.dayType,
       bandMinutes: q.bandMinutes,
       maxTravelMinutes: q.maxTravelMinutes,
+      transferPenaltyMinutes: q.transferPenaltySeconds ? q.transferPenaltySeconds / 60 : undefined,
       stopsReached: result.reached,
       rounds: result.rounds,
       computedMs: Date.now() - started,

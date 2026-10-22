@@ -627,6 +627,53 @@ test('an unmatched excludeRoutes/excludeStops name degrades to no effect, not an
     'an unmatched name must not change the result at all');
 });
 
+/* ---- transfer penalty --------------------------------------------------- */
+
+test('transferPenaltyMinutes never increases the catchment', () => {
+  const base = engine.search(net, q({ maxTravelMinutes: 45 }));
+  const penalised = engine.search(net,
+    Object.assign({}, q({ maxTravelMinutes: 45 }), { transferPenaltySeconds: 10 * 60 }));
+  assert.ok(penalised.reached <= base.reached,
+    'a per-transfer penalty must never let the search reach more stops');
+});
+
+test('a bigger transferPenaltyMinutes never reaches more stops than a smaller one', () => {
+  const small = engine.search(net,
+    Object.assign({}, q({ maxTravelMinutes: 45 }), { transferPenaltySeconds: 2 * 60 }));
+  const big = engine.search(net,
+    Object.assign({}, q({ maxTravelMinutes: 45 }), { transferPenaltySeconds: 15 * 60 }));
+  assert.ok(big.reached <= small.reached,
+    'more penalty per transfer must not increase the catchment');
+});
+
+test('transferPenaltyMinutes also works on the reverse (arrive-by) scan', () => {
+  const deadlineSec = 9 * 3600;
+  const base = engine.searchReverse(net,
+    Object.assign({}, q({ maxTravelMinutes: 45 }), { deadlineSec }));
+  const penalised = engine.searchReverse(net,
+    Object.assign({}, q({ maxTravelMinutes: 45 }), { deadlineSec, transferPenaltySeconds: 10 * 60 }));
+  assert.ok(penalised.reached <= base.reached);
+});
+
+test('transferPenaltyMinutes 0 (default) changes nothing, same stopsReached as before', () => {
+  const withZero = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30, transferPenaltyMinutes: 0,
+  })));
+  const omitted = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30,
+  })));
+  assert.equal(withZero.meta.stopsReached, omitted.meta.stopsReached);
+  assert.equal(omitted.meta.transferPenaltyMinutes, undefined,
+    'transferPenaltyMinutes should not appear in meta when not requested');
+});
+
+test('the API echoes transferPenaltyMinutes in meta when set', () => {
+  const r = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30, transferPenaltyMinutes: 8,
+  })));
+  assert.equal(r.meta.transferPenaltyMinutes, 8);
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {

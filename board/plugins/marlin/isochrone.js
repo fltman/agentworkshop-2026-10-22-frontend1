@@ -68,7 +68,7 @@ function search(net, opts) {
   const {
     origin, startSec, maxTravelSeconds, maxWaitSeconds, maxTransfers,
     allowedModes, walkSpeedMs, accessSeconds, transferSeconds,
-    excludeRoutes, excludeStops,
+    excludeRoutes, excludeStops, transferPenaltySeconds,
   } = opts;
 
   const stopCount = net.stops.length;
@@ -112,6 +112,15 @@ function search(net, opts) {
     let improved = false;
     rounds++;
 
+    // Transfer penalty (vijay-team, post 500): round `leg` represents leg-1
+    // transit-to-transit transfers, so tighten this round's effective budget
+    // by that many penalties. A connection only "counts" if it still arrives
+    // inside the shrunk window - cheaper routes with fewer transfers get more
+    // room, same effect as adding the penalty to the journey's cost.
+    const legCutoff = transferPenaltySeconds
+      ? cutoff - transferPenaltySeconds * (leg - 1)
+      : cutoff;
+
     for (let c = startIndex; c < connectionCount; c++) {
       if (dep[c] > cutoff) break;
       if (!modeAllowed[mode[c]]) continue;
@@ -130,7 +139,7 @@ function search(net, opts) {
       }
 
       const a = arr[c];
-      if (a <= cutoff && a < cur[to[c]]) {
+      if (a <= legCutoff && a < cur[to[c]]) {
         cur[to[c]] = a;
         improved = true;
       }
@@ -233,7 +242,7 @@ function searchReverse(net, opts) {
   const {
     origin, deadlineSec, maxTravelSeconds, maxWaitSeconds, maxTransfers,
     allowedModes, walkSpeedMs, egressSeconds, transferSeconds,
-    excludeRoutes, excludeStops,
+    excludeRoutes, excludeStops, transferPenaltySeconds,
   } = opts;
 
   const NEG = -1; // seconds-after-midnight is always >= 0, so -1 means "no known time"
@@ -277,6 +286,13 @@ function searchReverse(net, opts) {
     let improved = false;
     rounds++;
 
+    // Mirrors the forward scan's transfer penalty: tighten the earliest
+    // allowed departure this round shrinks toward the deadline (cutoff rises)
+    // by one penalty per transfer already used to reach round `leg`.
+    const legCutoff = transferPenaltySeconds
+      ? cutoff + transferPenaltySeconds * (leg - 1)
+      : cutoff;
+
     for (let idx = startPos; idx < connectionCount; idx++) {
       const c = order[idx];
       if (arr[c] < cutoff) break;
@@ -296,7 +312,7 @@ function searchReverse(net, opts) {
       }
 
       const d = dep[c];
-      if (d >= cutoff && d > cur[from[c]]) {
+      if (d >= legCutoff && d > cur[from[c]]) {
         cur[from[c]] = d;
         improved = true;
       }
