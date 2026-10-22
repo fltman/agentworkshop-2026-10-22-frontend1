@@ -68,6 +68,7 @@ function search(net, opts) {
   const {
     origin, startSec, maxTravelSeconds, maxWaitSeconds, maxTransfers,
     allowedModes, walkSpeedMs, accessSeconds, transferSeconds,
+    excludeRoutes, excludeStops,
   } = opts;
 
   const stopCount = net.stops.length;
@@ -76,9 +77,11 @@ function search(net, opts) {
   const best = new Int32Array(stopCount).fill(INF);
   const prev = new Int32Array(stopCount).fill(INF);
 
-  // Round 0: walk from the pin.
+  // Round 0: walk from the pin. An excluded stop is never a valid boarding
+  // point either, same as a closed station in the what-if scenario.
   let originStops = 0;
   for (const [i, metres] of accessStops(net, origin, accessSeconds * walkSpeedMs)) {
+    if (excludeStops && excludeStops.has(i)) continue;
     const t = startSec + Math.round(metres / walkSpeedMs);
     if (t > cutoff) continue;
     best[i] = t;
@@ -95,7 +98,7 @@ function search(net, opts) {
     modeAllowed[i] = allowedModes.indexOf(net.modeNames[i]) >= 0 ? 1 : 0;
   }
 
-  const { from, to, dep, arr, trip, mode, connectionCount } = net;
+  const { from, to, dep, arr, trip, mode, route, connectionCount } = net;
   const { transferOffset, transferTo, transferSec } = net;
   const startIndex = lowerBound(dep, startSec, connectionCount);
   const maxLegs = maxTransfers + 1;
@@ -112,6 +115,8 @@ function search(net, opts) {
     for (let c = startIndex; c < connectionCount; c++) {
       if (dep[c] > cutoff) break;
       if (!modeAllowed[mode[c]]) continue;
+      if (excludeRoutes && excludeRoutes.has(route[c])) continue;
+      if (excludeStops && (excludeStops.has(from[c]) || excludeStops.has(to[c]))) continue;
 
       const t = trip[c];
       if (!boarded[t]) {
@@ -141,14 +146,17 @@ function search(net, opts) {
       for (let pass = 0; pass < 3; pass++) {
         let walked = false;
         for (let s = 0; s < stopCount; s++) {
+          if (excludeStops && excludeStops.has(s)) continue;
           const t = cur[s];
           if (t === INF) continue;
           const end = transferOffset[s + 1];
           for (let k = transferOffset[s]; k < end; k++) {
             if (transferSec[k] > transferSeconds) continue;
+            const v = transferTo[k];
+            if (excludeStops && excludeStops.has(v)) continue;
             const t2 = t + transferSec[k];
-            if (t2 <= cutoff && t2 < cur[transferTo[k]]) {
-              cur[transferTo[k]] = t2;
+            if (t2 <= cutoff && t2 < cur[v]) {
+              cur[v] = t2;
               walked = true;
             }
           }
@@ -225,6 +233,7 @@ function searchReverse(net, opts) {
   const {
     origin, deadlineSec, maxTravelSeconds, maxWaitSeconds, maxTransfers,
     allowedModes, walkSpeedMs, egressSeconds, transferSeconds,
+    excludeRoutes, excludeStops,
   } = opts;
 
   const NEG = -1; // seconds-after-midnight is always >= 0, so -1 means "no known time"
@@ -237,6 +246,7 @@ function searchReverse(net, opts) {
   // Round 0: walk in to the pin from nearby stops (egress, not access).
   let originStops = 0;
   for (const [i, metres] of accessStops(net, origin, egressSeconds * walkSpeedMs)) {
+    if (excludeStops && excludeStops.has(i)) continue;
     const walkSec = Math.round(metres / walkSpeedMs);
     const latest = deadlineSec - walkSec;
     if (deadlineSec - latest > maxTravelSeconds) continue;
@@ -252,7 +262,7 @@ function searchReverse(net, opts) {
     modeAllowed[i] = allowedModes.indexOf(net.modeNames[i]) >= 0 ? 1 : 0;
   }
 
-  const { from, to, dep, arr, trip, mode, connectionCount } = net;
+  const { from, to, dep, arr, trip, mode, route, connectionCount } = net;
   const { transferOffset, transferTo, transferSec } = net;
   const order = arrOrderDesc(net);
   const startPos = arrUpperBoundDesc(order, arr, deadlineSec, connectionCount);
@@ -271,6 +281,8 @@ function searchReverse(net, opts) {
       const c = order[idx];
       if (arr[c] < cutoff) break;
       if (!modeAllowed[mode[c]]) continue;
+      if (excludeRoutes && excludeRoutes.has(route[c])) continue;
+      if (excludeStops && (excludeStops.has(from[c]) || excludeStops.has(to[c]))) continue;
 
       const t = trip[c];
       if (!detrained[t]) {
@@ -296,10 +308,12 @@ function searchReverse(net, opts) {
       for (let pass = 0; pass < 3; pass++) {
         let walked = false;
         for (let s = 0; s < stopCount; s++) {
+          if (excludeStops && excludeStops.has(s)) continue;
           const end = transferOffset[s + 1];
           for (let k = transferOffset[s]; k < end; k++) {
             if (transferSec[k] > transferSeconds) continue;
             const v = transferTo[k];
+            if (excludeStops && excludeStops.has(v)) continue;
             if (cur[v] === NEG) continue;
             const candidate = cur[v] - transferSec[k];
             if (candidate >= cutoff && candidate > cur[s]) {

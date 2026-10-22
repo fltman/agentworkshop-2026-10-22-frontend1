@@ -123,6 +123,7 @@ function build(raw, source, label) {
   const tArr = new Int32Array(upperBound);
   const tTrip = new Int32Array(upperBound);
   const tMode = new Uint8Array(upperBound);
+  const tRoute = new Int32Array(upperBound);
 
   const modeIds = new Map();
   const modeNames = [];
@@ -136,6 +137,21 @@ function build(raw, source, label) {
     return id;
   };
 
+  // Route names, for the optional excludeRoutes what-if filter. Not every
+  // feed names routes the same way vijay-team's /routes does, so this is
+  // best-effort: a name that never appears just never matches, harmlessly.
+  const routeIds = new Map();
+  const routeNames = [];
+  const routeIdOf = (name) => {
+    let id = routeIds.get(name);
+    if (id === undefined) {
+      id = routeNames.length;
+      routeIds.set(name, id);
+      routeNames.push(name);
+    }
+    return id;
+  };
+
   let w = 0;
   let tripId = 0;
   for (const t of trips) {
@@ -144,6 +160,7 @@ function build(raw, source, label) {
     const n = Math.min(seq.length, times.length);
     if (n < 2) continue;
     const mode = modeIdOf(String(t.mode || 'bus'));
+    const route = routeIdOf(String(t.route != null ? t.route : ''));
     const id = tripId++;
     for (let i = 0; i + 1 < n; i++) {
       const from = seq[i];
@@ -153,7 +170,7 @@ function build(raw, source, label) {
       if (!(from >= 0 && from < stopCount && to >= 0 && to < stopCount)) continue;
       if (!Number.isFinite(dep) || !Number.isFinite(arr) || arr < dep) continue;
       tFrom[w] = from; tTo[w] = to; tDep[w] = dep; tArr[w] = arr;
-      tTrip[w] = id; tMode[w] = mode;
+      tTrip[w] = id; tMode[w] = mode; tRoute[w] = route;
       w++;
     }
   }
@@ -170,10 +187,11 @@ function build(raw, source, label) {
   const arr = new Int32Array(w);
   const trip = new Int32Array(w);
   const mode = new Uint8Array(w);
+  const route = new Int32Array(w);
   for (let i = 0; i < w; i++) {
     const j = order[i];
     from[i] = tFrom[j]; to[i] = tTo[j]; dep[i] = tDep[j];
-    arr[i] = tArr[j]; trip[i] = tTrip[j]; mode[i] = tMode[j];
+    arr[i] = tArr[j]; trip[i] = tTrip[j]; mode[i] = tMode[j]; route[i] = tRoute[j];
   }
 
   // Walking transfers in CSR form: the neighbours of stop s are
@@ -213,9 +231,10 @@ function build(raw, source, label) {
     indexById,
     indexByName,
     connectionCount: w,
-    from, to, dep, arr, trip, mode,
+    from, to, dep, arr, trip, mode, route,
     tripCount: tripId,
     modeNames, modeIds,
+    routeNames, routeIds,
     transferOffset, transferTo, transferSec,
     transferCount: valid.length,
     modes: MODES.filter((m) => present.has(m)),
@@ -253,6 +272,25 @@ function applyConnections(net, raw, label) {
   }
   const fallbackMode = modeIdOf('bus');
 
+  // Resolve each route's name once too, for the optional excludeRoutes
+  // what-if filter (matched against vijay-team's /routes `name` field).
+  const routeIds = new Map();
+  const routeNames = [];
+  const routeIdOf = (name) => {
+    let id = routeIds.get(name);
+    if (id === undefined) {
+      id = routeNames.length;
+      routeIds.set(name, id);
+      routeNames.push(name);
+    }
+    return id;
+  };
+  const routeNameId = new Int32Array(routes.length);
+  for (let i = 0; i < routes.length; i++) {
+    routeNameId[i] = routeIdOf(String((routes[i] && routes[i].name) || ''));
+  }
+  const fallbackRoute = routeIdOf('');
+
   const stopCount = net.stops.length;
   const order = [];
   for (let i = 0; i < n; i++) {
@@ -273,6 +311,7 @@ function applyConnections(net, raw, label) {
   const arr = new Int32Array(w);
   const trip = new Int32Array(w);
   const mode = new Uint8Array(w);
+  const route = new Int32Array(w);
   let maxTrip = 0;
   for (let i = 0; i < w; i++) {
     const j = order[i];
@@ -285,14 +324,16 @@ function applyConnections(net, raw, label) {
     if (t > maxTrip) maxTrip = t;
     const r = raw.route ? raw.route[j] : -1;
     mode[i] = (r >= 0 && r < routeMode.length) ? routeMode[r] : fallbackMode;
+    route[i] = (r >= 0 && r < routeNameId.length) ? routeNameId[r] : fallbackRoute;
   }
 
   const present = new Set(modeNames);
   return Object.assign({}, net, {
     connectionCount: w,
-    from, to, dep, arr, trip, mode,
+    from, to, dep, arr, trip, mode, route,
     tripCount: maxTrip + 1,
     modeNames, modeIds,
+    routeNames, routeIds,
     modes: MODES.filter((m) => present.has(m)),
     connectionsLabel: label,
     realArrivals: true,

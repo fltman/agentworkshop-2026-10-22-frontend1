@@ -565,6 +565,68 @@ test('arrive-by bands are still cumulative, outermost first, and cover the budge
   assert.equal(mins[0], 30);
 });
 
+/* ---- disruption what-if: excludeRoutes / excludeStops ------------------ */
+
+test('excluding a route never reaches more stops than the baseline', () => {
+  const base = engine.search(net, q({ maxTravelMinutes: 30 }));
+  const routeName = net.routeNames.find((n) => n);
+  const excludeRoutes = new Set([net.routeIds.get(routeName)]);
+  const excluded = engine.search(net, Object.assign({}, q({ maxTravelMinutes: 30 }), { excludeRoutes }));
+  assert.ok(excluded.reached <= base.reached,
+    'excluding ' + routeName + ' must not increase the catchment');
+});
+
+test('excluding a stop makes exactly that stop unreachable', () => {
+  const base = engine.search(net, q({ maxTravelMinutes: 30 }));
+  let target = -1;
+  for (let i = 0; i < base.arrival.length; i++) {
+    if (base.arrival[i] !== engine.INF) { target = i; break; }
+  }
+  assert.ok(target >= 0, 'need at least one reachable stop to exclude');
+  const excludeStops = new Set([target]);
+  const excluded = engine.search(net, Object.assign({}, q({ maxTravelMinutes: 30 }), { excludeStops }));
+  assert.equal(excluded.arrival[target], engine.INF, 'the excluded stop must not be reached');
+  assert.ok(excluded.reached <= base.reached);
+});
+
+test('excludeRoutes/excludeStops also work on the reverse (arrive-by) scan', () => {
+  const deadlineSec = 9 * 3600;
+  const routeName = net.routeNames.find((n) => n);
+  const base = engine.searchReverse(net, Object.assign({}, q({ maxTravelMinutes: 30 }), { deadlineSec }));
+  const excludeRoutes = new Set([net.routeIds.get(routeName)]);
+  const excluded = engine.searchReverse(net,
+    Object.assign({}, q({ maxTravelMinutes: 30 }), { deadlineSec, excludeRoutes }));
+  assert.ok(excluded.reached <= base.reached);
+});
+
+test('the API resolves excludeRoutes/excludeStops and echoes how many matched', () => {
+  const routeName = net.routeNames.find((n) => n);
+  const stopId = net.stops[0].id;
+  const r = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30,
+    excludeRoutes: [routeName, 'no-such-route-xyz'],
+    excludeStops: [stopId],
+  })));
+  assert.equal(r.meta.excludedRoutes.requested, 2);
+  assert.equal(r.meta.excludedRoutes.matched, 1, 'only the real route name should match');
+  assert.equal(r.meta.excludedStops.requested, 1);
+  assert.equal(r.meta.excludedStops.matched, 1);
+});
+
+test('an unmatched excludeRoutes/excludeStops name degrades to no effect, not an error', () => {
+  const plain = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30,
+  })));
+  const withTypo = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30,
+    excludeRoutes: ['this-route-does-not-exist'], excludeStops: ['this-stop-does-not-exist'],
+  })));
+  assert.equal(withTypo.meta.excludedRoutes.matched, 0);
+  assert.equal(withTypo.meta.excludedStops.matched, 0);
+  assert.equal(withTypo.meta.stopsReached, plain.meta.stopsReached,
+    'an unmatched name must not change the result at all');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {
