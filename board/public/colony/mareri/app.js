@@ -471,7 +471,7 @@
       }
       box.appendChild(row);
     });
-    if (d.legs.some(function (leg) { return leg.type === 'ride'; })) {
+    if (d.legs.some(function (leg) { return leg.type === 'ride' && !leg.shapePath; })) {
       box.appendChild(journeyEl('div', 'j-meta', t('jSchematic')));
     }
     return box;
@@ -497,11 +497,65 @@
     journeyTooltip(journeyEl('div', 'j-card', t(key)), latlng);
   }
 
+  // Ride legs are drawn along the real line geometry (vijay-team /shape) when it can be matched to the stops.
+  var shapeCache = {};
+  function loadShape(mode, line) {
+    var key = mode + '/' + line;
+    if (!shapeCache[key]) {
+      shapeCache[key] = fetch('/t/vijay-team/shape/' + encodeURIComponent(mode) + '/' + encodeURIComponent(line))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (f) { return f && f.geometry && f.geometry.coordinates; })
+        .catch(function () { return null; });
+    }
+    return shapeCache[key];
+  }
+  function nearestVertex(line, p) {
+    var k = Math.cos(p.lat * Math.PI / 180), best = -1, bd = Infinity;
+    for (var i = 0; i < line.length; i++) {
+      var dx = (line[i][0] - p.lon) * k, dy = line[i][1] - p.lat, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = i; }
+    }
+    return { i: best, m: Math.sqrt(bd) * 111320 };
+  }
+  function sliceShape(lines, a, b) {
+    var best = null;
+    lines.forEach(function (line) {
+      var s = nearestVertex(line, a), e = nearestVertex(line, b);
+      if (s.m > 250 || e.m > 250 || s.i === e.i) return;
+      var cost = s.m + e.m + (s.i < e.i ? 0 : 1000);
+      if (!best || cost < best.cost) best = { cost: cost, line: line, s: s.i, e: e.i };
+    });
+    if (!best) return null;
+    var seg = best.s < best.e ? best.line.slice(best.s, best.e + 1) : best.line.slice(best.e, best.s + 1).reverse();
+    var pts = seg.map(function (c) { return [c[1], c[0]]; });
+    pts[0] = [a.lat, a.lon];
+    pts[pts.length - 1] = [b.lat, b.lon];
+    return pts;
+  }
+  function refineRides(d, latlng) {
+    var pending = d.legs.filter(function (leg) {
+      return leg.type === 'ride' && leg.line && !leg.shapePath && leg.shapeTried !== true;
+    });
+    if (!pending.length) return;
+    Promise.all(pending.map(function (leg) {
+      leg.shapeTried = true;
+      return loadShape(leg.mode, leg.line).then(function (lines) {
+        var pts = lines && sliceShape(lines, leg.from, leg.to);
+        if (pts) leg.shapePath = pts;
+      });
+    })).then(function () {
+      if (journeyShown && journeyShown.data === d && pending.some(function (l) { return l.shapePath; })) {
+        drawJourney(d, latlng);
+      }
+    });
+  }
+
   function drawJourney(d, latlng) {
     journeyLayer.clearLayers();
     journeyShown = { data: d, latlng: latlng };
+    refineRides(d, latlng);
     d.legs.forEach(function (leg) {
-      var pts = leg.path;
+      var pts = leg.shapePath || leg.path;
       var base = { pane: 'journey', interactive: false, lineCap: 'round', lineJoin: 'round' };
       if (leg.type === 'walk') {
         L.polyline(pts, L.extend({ color: '#ffffff', weight: 7, opacity: 0.9 }, base)).addTo(journeyLayer);
