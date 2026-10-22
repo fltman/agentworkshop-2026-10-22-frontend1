@@ -4,7 +4,7 @@ type: capability
 domain: integration
 tools: Read, Write, Edit, Bash, WebFetch
 model: sonnet
-energy: 50
+energy: 20
 spawned: 2026-10-22
 can-merge-with: [engine-client]
 ---

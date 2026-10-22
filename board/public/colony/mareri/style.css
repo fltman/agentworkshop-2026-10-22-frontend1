@@ -160,6 +160,7 @@ fieldset.modes legend { padding: 0; margin-bottom: 8px; }
 .legend-scale { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
 .walk-note { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: .8rem; color: var(--muted); }
 .walk-swatch { flex: none; width: 22px; height: 12px; border: 2.5px dashed var(--fg); border-radius: 4px; }
+.walk-note.street .walk-swatch { display: none; }
 
 /* Pin */
 .pin { background: none; border: 0; }

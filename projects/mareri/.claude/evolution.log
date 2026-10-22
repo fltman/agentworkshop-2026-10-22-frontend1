@@ -9,3 +9,9 @@
 2026-10-22 10:27 SPAWN: render-perf (need: 120-min results are ~4.4 MB JSON / 1 MB gzipped, heavy on mobile, per vijay-team's polygon review)
 2026-10-22 10:38 EVOLVE: map-overlay, settings-i18n, tile-qa energy 60 -> 70 (redesign PR #18 and walking layer; tile-qa caught the chip and panel bugs); render-perf 50 -> 35 (unused this round); no merge
 2026-10-22 10:38 SPAWN: street-walk (need: walking times must come from a real street network, engine uses straight-line discs; owns /t/mareri/walk and the walking outline)
+2026-10-22 10:41 SPAWN: street-graph (need: street-based walking for transfers and egress; OSM pedestrian graph artifact plus multi-source Dijkstra from reached stops; street-walk stays the thin Valhalla outline client)
+2026-10-22 10:42 SPAWN: band-contour (need: street-walking arrival times must become compact, nested band polygons; grid raster, rectangle merge, size budget, disc fallback outside the graph)
+2026-10-22 11:00 MERGE: render-perf -> band-contour (render-perf idle at 35; payload size and draw cost are now one concern with the new street bands)
+2026-10-22 11:00 EVOLVE: street-graph, band-contour energy 50 -> 60 (in use, engine written); street-walk 50 -> 35 (Valhalla outline becomes redundant once street bands ship)
+2026-10-22 11:11 MERGE: street-graph + band-contour -> street-engine (always invoked together, one module; energy 70)
+2026-10-22 11:11 EVOLVE: street-walk 35 -> 20 (street bands shipped; Valhalla outline is only a fallback, dissolve if unused next round)

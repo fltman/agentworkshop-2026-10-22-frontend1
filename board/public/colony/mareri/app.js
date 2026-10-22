@@ -1,7 +1,8 @@
 (function () {
   'use strict';
 
-  var ENGINE_URL = '/t/marlin/isochrone';
+  var ENGINE_URL = '/t/mareri/isochrone';          // street-based walking
+  var FALLBACK_ENGINE_URL = '/t/marlin/isochrone'; // straight-line walking
   var TIMEOUT_MS = 20000;
   var MODES = ['bus', 'metro', 'tram', 'train', 'commuter_rail', 'boat'];
   var STOCKHOLM = [59.3293, 18.0686];
@@ -52,19 +53,35 @@
   walkPane.style.pointerEvents = 'none';
   var walkLayer = null;
   var walkMinutes = null;
+  var streetWalk = false;
   var walkToken = 0;
 
   function clearWalk() {
     walkToken++;
     if (walkLayer) { map.removeLayer(walkLayer); walkLayer = null; }
     walkMinutes = null;
+    streetWalk = false;
     $('walk-note').hidden = true;
   }
 
   function showWalkNote() {
-    if (walkMinutes === null) return;
+    var note = $('walk-note');
+    if (streetWalk) {
+      $('walk-text').textContent = t('walkStreet');
+      note.classList.add('street');
+      note.hidden = false;
+      return;
+    }
+    note.classList.remove('street');
+    if (walkMinutes === null) { note.hidden = true; return; }
     $('walk-text').textContent = t('walkReal', { n: walkMinutes });
-    $('walk-note').hidden = false;
+    note.hidden = false;
+  }
+
+  function markStreetWalk() {
+    clearWalk();
+    streetWalk = true;
+    showWalkNote();
   }
 
   async function loadWalkArea(p, minutes) {
@@ -323,15 +340,11 @@
 
   var inflight = null;
 
-  async function callEngine(body) {
-    if (params.get('stub') === '1' && window.StubEngine) return window.StubEngine(body);
-    if (inflight) inflight.abort();
-    var ctrl = new AbortController();
-    inflight = ctrl;
-    var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+  // Posts to one engine. Returns {data} or throws an Error with .status / .isNetwork.
+  async function postEngine(url, body, ctrl) {
     var res;
     try {
-      res = await fetch(ENGINE_URL, {
+      res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -340,9 +353,6 @@
     } catch (e) {
       if (e.name !== 'AbortError') e.isNetwork = true;
       throw e;
-    } finally {
-      clearTimeout(timer);
-      if (inflight === ctrl) inflight = null;
     }
     var data = null;
     try { data = await res.json(); } catch (e) { /* not JSON */ }
@@ -356,6 +366,30 @@
       throw err;
     }
     return data;
+  }
+
+  // The street-based engine is preferred; marlin's straight-line engine answers when it is missing or broken.
+  function streetEngineDown(e) {
+    return e.isNetwork || e.status === 404 || e.status === 405 || e.status >= 500;
+  }
+
+  async function callEngine(body) {
+    if (params.get('stub') === '1' && window.StubEngine) return window.StubEngine(body);
+    if (inflight) inflight.abort();
+    var ctrl = new AbortController();
+    inflight = ctrl;
+    var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
+    try {
+      try {
+        return await postEngine(ENGINE_URL, body, ctrl);
+      } catch (e) {
+        if (e.name === 'AbortError' || !streetEngineDown(e)) throw e;
+        return await postEngine(FALLBACK_ENGINE_URL, body, ctrl);
+      }
+    } finally {
+      clearTimeout(timer);
+      if (inflight === ctrl) inflight = null;
+    }
   }
 
   $('form').addEventListener('submit', async function (ev) {
@@ -378,7 +412,8 @@
         setStatus(t('err.empty'), true);
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
-        loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
+        if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
+        else loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {
           panel.classList.add('collapsed');
           toggle.setAttribute('aria-expanded', 'false');
