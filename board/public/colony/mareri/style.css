@@ -84,6 +84,7 @@ h1 { font-size: 1.02rem; line-height: 1.2; margin: 0; font-weight: 700; letter-s
 .origin-label { font-weight: 600; font-variant-numeric: tabular-nums; }
 .hint { color: var(--muted); font-size: .82rem; }
 
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .banner { margin: 0 0 12px; padding: 8px 12px; font-size: .84rem; border-radius: 10px; background: var(--warn-bg); color: var(--warn-fg); }
 
 .label { font-size: .78rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }

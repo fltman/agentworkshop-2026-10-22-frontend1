@@ -604,6 +604,22 @@
   })();
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideJourney(); });
 
+  // Screen-reader sentence ("Within 30 min: 1027 stations") from vijay-team's summary module.
+  var stopsPromise = null;
+  function speakSummary(fc) {
+    var el = $('summary');
+    el.textContent = '';
+    if (!window.VijaySummary || (fc.meta && fc.meta.walkOnly)) return;
+    if (!stopsPromise) {
+      stopsPromise = fetch('/t/vijay-team/stops').then(function (r) { return r.json(); })
+        .catch(function () { stopsPromise = null; return null; });
+    }
+    stopsPromise.then(function (stops) {
+      if (!stops) return;
+      try { el.textContent = VijaySummary.describe(VijaySummary.summarize(fc, stops), lang); } catch (e) { /* optional */ }
+    });
+  }
+
   $('form').addEventListener('submit', async function (ev) {
     ev.preventDefault();
     var body;
@@ -625,6 +641,7 @@
         setStatus(t('err.empty'), true);
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
+        speakSummary(fc);
         setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' ? body : null);
         if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
         else if (!(fc && fc.meta && fc.meta.walkOnly)) loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
