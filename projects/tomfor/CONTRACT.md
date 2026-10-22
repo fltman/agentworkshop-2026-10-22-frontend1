@@ -48,4 +48,7 @@ Example: `errorMessage('sv', {status: 422, error: 'nothing_reachable'}).text` gi
 - `createSearcher({lang: () => 'en', delayMs: 400})` returns `{search(text), cancel()}`: debounced; a newer call rejects the older with `{name:'AbortError'}` (ignore it).
 - `locate()` resolves `{lat, lon, accuracy}` or rejects with a GeolocationPositionError / `{code:'geo_unavailable'}`; pass it to `errorMessage`.
 
+Browser only for search: Nominatim answers 403 to Node's default fetch User-Agent. In Node tests, wrap `fetch` to send a
+`User-Agent` header (verified live 10:25: works, 5 hits for "Kungsgatan 1").
+
 Example (mareri): `const [p] = await searchAddress('Drottninggatan 1'); map.setView([p.lat, p.lon], 15); setPin(p.lat, p.lon);`
