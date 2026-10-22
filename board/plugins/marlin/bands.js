@@ -113,6 +113,19 @@ function round5(v) {
  * neighbour's disc here (so the polygon budget keeps working), while a disc
  * that survives is always recorded - and offered to others - at its full,
  * current `r`, because that is what the client actually draws.
+ *
+ * This does not make nesting perfect, only far better: if a forced disc X
+ * (frozen at checkR) gets absorbed into a bigger neighbour O in some band,
+ * everything X used to prove covered within its own slack margin (up to
+ * `checkR` from X's centre) is only guaranteed covered by O up to
+ * `checkR * slack` short of O's edge - the same slack that let X itself
+ * stick out of O. A point sitting right at that margin's outer edge in one
+ * band and just past O's true edge in the next is still a (rare, expected)
+ * residual violation, not a bug: trim-test.js measured 7 of 3968 stations
+ * after this fix, down from 13 before it and 254 before the original
+ * re-decimate fix. Closing this last gap would mean never dropping a forced
+ * disc at all, which regressed the polygon payload in testing (see
+ * test.mjs) - not a trade worth making for seven stations.
  */
 function decimate(discs, slack, forced = []) {
   const all = forced.concat(discs);
