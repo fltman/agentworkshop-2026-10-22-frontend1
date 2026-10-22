@@ -110,11 +110,25 @@
   }
   pin.on('drag', showOrigin);
   var suppressClickUntil = 0;
+  // The origin is chosen once; Reset unlocks it. A double click only zooms.
+  var originLocked = false;
+  var clickTimer = null;
+  function lockOrigin(on) {
+    originLocked = on;
+    if (on) pin.dragging.disable(); else pin.dragging.enable();
+  }
+  pin.on('dragend', function () { lockOrigin(true); });
+  map.on('dblclick', function () { clearTimeout(clickTimer); clickTimer = null; });
   map.on('click', function (e) {
-    if (Date.now() < suppressClickUntil) return;
-    pin.setLatLng(e.latlng);
-    showOrigin();
-    setJourneyBody(null);
+    if (Date.now() < suppressClickUntil || originLocked) return;
+    clearTimeout(clickTimer);
+    clickTimer = setTimeout(function () {
+      clickTimer = null;
+      pin.setLatLng(e.latlng);
+      showOrigin();
+      setJourneyBody(null);
+      lockOrigin(true);
+    }, 260);
   });
   showOrigin();
 
@@ -738,6 +752,7 @@
     btn.classList.add('loading');
     setStatus(t('calculating'));
     setJourneyBody(null);
+    lockOrigin(true);
     var started = performance.now();
     try {
       var fc = await callEngine(body);
@@ -806,6 +821,7 @@
   }
   $('form').addEventListener('submit', writeHash);
   var fromHash = readHash();
+  if (fromHash) lockOrigin(true);
 
   // vijay-team's /meta says which dates the timetable covers; warn when the chosen date is outside.
   var feed = null;
@@ -837,6 +853,8 @@
     modesBox.querySelectorAll('input').forEach(function (cb) { cb.checked = true; });
     syncTravel();
     checkFeed();
+    clearTimeout(clickTimer);
+    lockOrigin(false);
     pin.setLatLng(STOCKHOLM);
     showOrigin();
     map.setView(STOCKHOLM, 11);
