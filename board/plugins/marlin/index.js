@@ -1,0 +1,314 @@
+'use strict';
+
+/**
+ * marlin — isochrone engine for Stockholm public transport.
+ *
+ * Mounted on /t/marlin/. The contract is projects/marlin/CONTRACT.md.
+ *
+ *   POST /t/marlin/isochrone   origin + settings -> GeoJSON colour bands
+ *   GET  /t/marlin/health      liveness and whether real data is loaded
+ *   GET  /t/marlin/modes       modes this deployment actually has data for
+ */
+
+const network = require('./network');
+const engine = require('./isochrone');
+const bands = require('./bands');
+
+const MODES = network.MODES;
+const MAX_BODY_BYTES = 64 * 1024;
+const CACHE_LIMIT = 40;
+
+const state = {
+  net: null,
+  cache: new Map(),
+};
+
+const ERRORS = {
+  bad_request: [400, 'The request could not be understood.', 'Förfrågan kunde inte tolkas.'],
+  unknown_mode: [400, 'Unknown transport type.', 'Okänt färdsätt.'],
+  no_stops_near_origin: [422,
+    'No stop within walking distance of the pin. Move the pin or allow a longer walk.',
+    'Ingen hållplats inom gångavstånd från nålen. Flytta nålen eller tillåt längre gångtid.'],
+  nothing_reachable: [422,
+    'Nothing is reachable with these settings. Try a longer travel time, more transfers or more transport types.',
+    'Inget går att nå med de här inställningarna. Prova längre restid, fler byten eller fler färdsätt.'],
+  network_not_loaded: [503,
+    'The transit network is not loaded yet. Try again shortly.',
+    'Trafiknätet är inte inläst ännu. Försök igen om en stund.'],
+  internal: [500, 'Something went wrong in the isochrone engine.', 'Något gick fel i isokronmotorn.'],
+};
+
+class ApiError extends Error {
+  constructor(code, detail) {
+    super(code);
+    this.code = ERRORS[code] ? code : 'internal';
+    this.detail = detail;
+  }
+}
+
+function sendJson(res, status, body) {
+  const text = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(text),
+  });
+  res.end(text);
+}
+
+function sendError(res, err) {
+  const code = err instanceof ApiError ? err.code : 'internal';
+  const [status, message, messageSv] = ERRORS[code];
+  sendJson(res, status, {
+    error: code,
+    message: err.detail ? message + ' ' + err.detail : message,
+    message_sv: messageSv,
+  });
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new ApiError('bad_request', 'The request body is too large.'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function num(value, fallback, min, max, label) {
+  if (value === undefined || value === null || value === '') return fallback;
+  const n = Number(value);
+  if (!Number.isFinite(n)) throw new ApiError('bad_request', label + ' must be a number.');
+  if (n < min || n > max) {
+    throw new ApiError('bad_request', label + ' must be between ' + min + ' and ' + max + '.');
+  }
+  return n;
+}
+
+/**
+ * Seconds after midnight, Europe/Stockholm. Accepts an ISO timestamp, "HH:MM"
+ * or nothing at all (meaning now).
+ */
+function parseStartSeconds(value, timezone) {
+  if (typeof value === 'string') {
+    const hhmm = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+    if (hhmm) {
+      const h = Number(hhmm[1]);
+      const m = Number(hhmm[2]);
+      if (h > 23 || m > 59) throw new ApiError('bad_request', 'startTime is not a valid time.');
+      return h * 3600 + m * 60;
+    }
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      throw new ApiError('bad_request', 'startTime is not a valid time.');
+    }
+    return localSeconds(d, timezone);
+  }
+  if (value !== undefined && value !== null) {
+    throw new ApiError('bad_request', 'startTime must be a string.');
+  }
+  return localSeconds(new Date(), timezone);
+}
+
+function localSeconds(date, timezone) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone || 'Europe/Stockholm',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const get = (type) => Number(parts.find((p) => p.type === type).value);
+  return (get('hour') % 24) * 3600 + get('minute') * 60 + get('second');
+}
+
+function parseRequest(body, net) {
+  let input;
+  try {
+    input = body ? JSON.parse(body) : {};
+  } catch {
+    throw new ApiError('bad_request', 'The body is not valid JSON.');
+  }
+  if (!input || typeof input !== 'object') {
+    throw new ApiError('bad_request', 'The body must be a JSON object.');
+  }
+
+  const origin = input.origin;
+  if (!origin || typeof origin !== 'object') {
+    throw new ApiError('bad_request', 'origin is required.');
+  }
+  const lat = num(origin.lat, undefined, -90, 90, 'origin.lat');
+  const lon = num(origin.lon, undefined, -180, 180, 'origin.lon');
+  if (lat === undefined || lon === undefined) {
+    throw new ApiError('bad_request', 'origin.lat and origin.lon are required.');
+  }
+
+  let modes = input.modes;
+  if (modes === undefined || modes === null) {
+    modes = MODES.slice();
+  } else if (!Array.isArray(modes) || modes.length === 0) {
+    throw new ApiError('bad_request', 'modes must be a non-empty array.');
+  } else {
+    for (const m of modes) {
+      if (!MODES.includes(m)) {
+        throw new ApiError('unknown_mode',
+          '"' + String(m).slice(0, 40) + '" is not one of: ' + MODES.join(', ') + '.');
+      }
+    }
+  }
+
+  const walking = (input.walking && typeof input.walking === 'object') ? input.walking : {};
+  const bandMinutes = num(input.bandMinutes, 5, 1, 30, 'bandMinutes');
+  const maxTravelMinutes = num(input.maxTravelMinutes, 30, 1, 120, 'maxTravelMinutes');
+
+  return {
+    origin: { lat, lon },
+    startSec: parseStartSeconds(input.startTime, net.timezone),
+    startTimeRaw: typeof input.startTime === 'string' ? input.startTime : null,
+    maxTravelSeconds: Math.round(maxTravelMinutes * 60),
+    maxWaitSeconds: Math.round(num(input.maxWaitMinutes, 7, 0, 60, 'maxWaitMinutes') * 60),
+    maxTransfers: Math.round(num(input.maxTransfers, 3, 0, 8, 'maxTransfers')),
+    allowedModes: modes,
+    walkSpeedMs: num(walking.speedKmh, 4.8, 1, 10, 'walking.speedKmh') * 1000 / 3600,
+    accessSeconds: Math.round(num(walking.accessMinutes, 10, 0, 30, 'walking.accessMinutes') * 60),
+    egressSeconds: Math.round(num(walking.egressMinutes, 10, 0, 30, 'walking.egressMinutes') * 60),
+    transferSeconds: Math.round(num(walking.transferMinutes, 5, 0, 30, 'walking.transferMinutes') * 60),
+    bandSeconds: Math.round(bandMinutes * 60),
+    bandMinutes,
+    maxTravelMinutes,
+  };
+}
+
+function cacheKey(q) {
+  return [
+    q.origin.lat.toFixed(5), q.origin.lon.toFixed(5), q.startSec,
+    q.maxTravelSeconds, q.maxWaitSeconds, q.maxTransfers,
+    q.allowedModes.slice().sort().join(','),
+    q.walkSpeedMs.toFixed(3), q.accessSeconds, q.egressSeconds,
+    q.transferSeconds, q.bandSeconds,
+  ].join('|');
+}
+
+function computeIsochrone(net, q) {
+  const key = cacheKey(q);
+  const hit = state.cache.get(key);
+  if (hit) {
+    // Refresh recency: the Map keeps insertion order, so re-insert.
+    state.cache.delete(key);
+    state.cache.set(key, hit);
+    return { ...hit, cached: true };
+  }
+
+  const started = Date.now();
+  const result = engine.search(net, q);
+
+  if (result.originStops === 0) throw new ApiError('no_stops_near_origin');
+  if (result.reached <= result.originStops && q.maxTransfers >= 0 && result.reached === 0) {
+    throw new ApiError('nothing_reachable');
+  }
+
+  const bandCount = Math.max(1, Math.ceil(q.maxTravelSeconds / q.bandSeconds));
+  const features = bands.build(net, result.arrival, {
+    origin: q.origin,
+    startSec: q.startSec,
+    bandSeconds: q.bandSeconds,
+    bandCount,
+    walkSpeedMs: q.walkSpeedMs,
+    egressSeconds: q.egressSeconds,
+    accessSeconds: q.accessSeconds,
+  });
+
+  const payload = {
+    type: 'FeatureCollection',
+    meta: {
+      origin: q.origin,
+      startTime: formatHHMM(q.startSec),
+      bandMinutes: q.bandMinutes,
+      maxTravelMinutes: q.maxTravelMinutes,
+      stopsReached: result.reached,
+      computedMs: Date.now() - started,
+      dataVersion: net.dataVersion,
+      source: net.source,
+      algorithm: 'rounds+scan',
+      cumulativeBands: true,
+    },
+    features,
+  };
+
+  state.cache.set(key, payload);
+  while (state.cache.size > CACHE_LIMIT) {
+    state.cache.delete(state.cache.keys().next().value);
+  }
+  return payload;
+}
+
+function formatHHMM(sec) {
+  const s = ((sec % 86400) + 86400) % 86400;
+  return String(Math.floor(s / 3600)).padStart(2, '0') + ':' +
+         String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+}
+
+module.exports = {
+  init(ctx) {
+    try {
+      state.net = network.load(ctx && ctx.dataDir ? ctx.dataDir : __dirname);
+    } catch (err) {
+      console.error('[marlin] network load failed:', err && err.message);
+      state.net = null;
+    }
+  },
+
+  async handle(req, res, ctx) {
+    const p = String((ctx && ctx.path) || '').replace(/^\/+|\/+$/g, '');
+
+    try {
+      if (p === 'health') {
+        const net = state.net;
+        sendJson(res, 200, {
+          ok: true,
+          networkLoaded: !!net,
+          dataVersion: net ? net.dataVersion : null,
+          source: net ? net.source : null,
+          stops: net ? net.stops.length : 0,
+          connections: net ? net.connections.length : 0,
+        });
+        return true;
+      }
+
+      if (p === 'modes') {
+        sendJson(res, 200, { modes: state.net ? state.net.modes : [] });
+        return true;
+      }
+
+      if (p === 'isochrone') {
+        if (req.method !== 'POST') {
+          res.writeHead(405, { allow: 'POST' });
+          res.end();
+          return true;
+        }
+        if (!state.net) throw new ApiError('network_not_loaded');
+        const body = await readBody(req);
+        const q = parseRequest(body, state.net);
+        sendJson(res, 200, computeIsochrone(state.net, q));
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      if (!(err instanceof ApiError)) {
+        console.error('[marlin] request failed:', err && err.stack);
+      }
+      sendError(res, err);
+      return true;
+    }
+  },
+
+  // Exposed for the tests in projects/marlin/test.mjs.
+  _internals: { parseRequest, computeIsochrone, state, ApiError, formatHHMM },
+};

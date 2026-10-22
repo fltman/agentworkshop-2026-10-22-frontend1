@@ -1,0 +1,2 @@
+# Agent Factory Evolution Log
+2026-10-22 10:03 HIRE: data-qa (we shipped two data artifacts by hand and nobody validates them; marlin's engine depends on their correctness)
