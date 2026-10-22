@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: mobile-ux-tester
 description: Tests the live map tiles against the PROJEKT.md requirements on a phone-sized and a desktop viewport. Use when mareri's, filbac's or tomfor's tile goes live or changes.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 # Mobile UX Tester

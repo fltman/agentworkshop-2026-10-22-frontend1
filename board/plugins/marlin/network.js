@@ -39,6 +39,33 @@ function dayTypeFor(date) {
   return 'weekday';
 }
 
+function readGzJson(file) {
+  const buf = fs.readFileSync(file);
+  const text = file.endsWith('.gz')
+    ? zlib.gunzipSync(buf).toString('utf8')
+    : buf.toString('utf8');
+  return JSON.parse(text);
+}
+
+function readConnectionsFile(dir, dayType) {
+  const candidates = [
+    path.join(dir, 'connections-' + dayType + '.json.gz'),
+    path.join(dir, 'connections-' + dayType + '.json'),
+  ];
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const raw = readGzJson(file);
+      if (raw && raw.from && raw.to && raw.dep && raw.arr) {
+        return { raw, file };
+      }
+    } catch (err) {
+      console.error('[marlin] could not read', path.basename(file), err && err.message);
+    }
+  }
+  return null;
+}
+
 function readNetworkFile(dir, dayType) {
   const candidates = [
     path.join(dir, 'network-' + dayType + '.json.gz'),
@@ -196,6 +223,83 @@ function build(raw, source, label) {
 }
 
 /**
+ * vijay-team also ship a columnar connections artifact that carries **real
+ * arrival times**. The network file only gives a departure per stop, so
+ * rebuilding trips from it forces us to treat the next stop's departure as the
+ * arrival, which overstates ride time on every route with a dwell. When the
+ * connections file is there we use it and the engine gets more honest.
+ */
+function applyConnections(net, raw, label) {
+  const n = Math.min(
+    raw.from.length, raw.to.length, raw.dep.length, raw.arr.length);
+  if (!n) return net;
+
+  const routes = raw.routes || [];
+  const modeIds = new Map();
+  const modeNames = [];
+  const modeIdOf = (name) => {
+    let id = modeIds.get(name);
+    if (id === undefined) {
+      id = modeNames.length;
+      modeIds.set(name, id);
+      modeNames.push(name);
+    }
+    return id;
+  };
+  // Resolve each route's mode once rather than per connection.
+  const routeMode = new Uint8Array(routes.length);
+  for (let i = 0; i < routes.length; i++) {
+    routeMode[i] = modeIdOf(String((routes[i] && routes[i].mode) || 'bus'));
+  }
+  const fallbackMode = modeIdOf('bus');
+
+  const stopCount = net.stops.length;
+  const order = [];
+  for (let i = 0; i < n; i++) {
+    const f = raw.from[i];
+    const t = raw.to[i];
+    const d = raw.dep[i];
+    const a = raw.arr[i];
+    if (!(f >= 0 && f < stopCount && t >= 0 && t < stopCount)) continue;
+    if (!Number.isFinite(d) || !Number.isFinite(a) || a < d) continue;
+    order.push(i);
+  }
+  order.sort((x, y) => raw.dep[x] - raw.dep[y] || raw.arr[x] - raw.arr[y]);
+
+  const w = order.length;
+  const from = new Int32Array(w);
+  const to = new Int32Array(w);
+  const dep = new Int32Array(w);
+  const arr = new Int32Array(w);
+  const trip = new Int32Array(w);
+  const mode = new Uint8Array(w);
+  let maxTrip = 0;
+  for (let i = 0; i < w; i++) {
+    const j = order[i];
+    from[i] = raw.from[j];
+    to[i] = raw.to[j];
+    dep[i] = raw.dep[j];
+    arr[i] = raw.arr[j];
+    const t = raw.trip ? raw.trip[j] : 0;
+    trip[i] = t;
+    if (t > maxTrip) maxTrip = t;
+    const r = raw.route ? raw.route[j] : -1;
+    mode[i] = (r >= 0 && r < routeMode.length) ? routeMode[r] : fallbackMode;
+  }
+
+  const present = new Set(modeNames);
+  return Object.assign({}, net, {
+    connectionCount: w,
+    from, to, dep, arr, trip, mode,
+    tripCount: maxTrip + 1,
+    modeNames, modeIds,
+    modes: MODES.filter((m) => present.has(m)),
+    connectionsLabel: label,
+    realArrivals: true,
+  });
+}
+
+/**
  * Lazily loads one network per day type, so a deployment that only ever sees
  * weekday queries never pays for the weekend files.
  */
@@ -216,9 +320,19 @@ function createStore(dataDir) {
       if (!found || !Array.isArray(found.raw.stops) || !found.raw.stops.length) continue;
       const started = Date.now();
       net = build(found.raw, 'gtfs', path.basename(found.file));
+
+      // Prefer vijay-team's connections artifact when it sits beside the
+      // network file: same stop indices, but with real arrival times.
+      const conn = readConnectionsFile(dir, dayType);
+      if (conn && conn.raw.stopCount === found.raw.stops.length) {
+        net = applyConnections(net, conn.raw, path.basename(conn.file));
+      }
+
       console.log('[marlin]', dayType, 'network:', net.stops.length, 'stops,',
         net.connectionCount, 'connections,', net.transferCount, 'transfers from',
-        path.basename(found.file), 'in', Date.now() - started, 'ms');
+        path.basename(found.file),
+        net.realArrivals ? '+ ' + net.connectionsLabel + ' (real arrivals)' : '(derived arrivals)',
+        'in', Date.now() - started, 'ms');
       break;
     }
 

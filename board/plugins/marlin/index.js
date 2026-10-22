@@ -180,7 +180,36 @@ function parseStart(value, explicitDay) {
     dayType = network.dayTypeFor(date);
   }
 
-  return { startSec, dayType };
+  return { startSec, dayType, startDate: date };
+}
+
+/**
+ * The resolved start as an unambiguous ISO string with the Stockholm offset.
+ * Echoing only "HH:MM" made a caller who sent a full ISO timestamp think we
+ * had lost their time zone (reported by tomfor), when in fact we had converted
+ * it correctly. Say it in full instead.
+ */
+function formatISO(date, startSec) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Stockholm',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type).value;
+
+  // Stockholm is +01:00 in winter and +02:00 in summer; derive it rather than
+  // hard-coding either one.
+  const asUTC = Date.UTC(
+    Number(get('year')), Number(get('month')) - 1, Number(get('day')),
+    Number(get('hour')) % 24, Number(get('minute')));
+  const offsetMin = Math.round((asUTC - date.getTime()) / 60000);
+  const sign = offsetMin < 0 ? '-' : '+';
+  const abs = Math.abs(offsetMin);
+  const offset = sign + String(Math.floor(abs / 60)).padStart(2, '0') + ':' +
+    String(abs % 60).padStart(2, '0');
+
+  return get('year') + '-' + get('month') + '-' + get('day') + 'T' +
+    formatHHMM(startSec) + ':00' + offset;
 }
 
 function localSeconds(date) {
@@ -234,7 +263,7 @@ function parseRequest(body) {
     throw new ApiError('bad_request', 'walking must be an object.');
   }
 
-  const { startSec, dayType } = parseStart(
+  const { startSec, dayType, startDate } = parseStart(
     pick(input, ['startTime', 'start_time', 'start']),
     pick(input, ['day', 'dayType', 'day_type']));
 
@@ -242,7 +271,7 @@ function parseRequest(body) {
     5, 1, 30, 'bandMinutes');
   const maxTravelMinutes = num(
     pick(input, ['maxTravelMinutes', 'maxTravelMin', 'max_travel_min', 'max_travel_minutes']),
-    30, 1, 120, 'maxTravelMinutes');
+    30, 5, 120, 'maxTravelMinutes');
   const maxWaitMinutes = num(
     pick(input, ['maxWaitMinutes', 'maxWaitMin', 'max_wait_min', 'max_wait_minutes']),
     7, 0, 60, 'maxWaitMinutes');
@@ -278,6 +307,7 @@ function parseRequest(body) {
     bandSeconds: Math.round(bandMinutes * 60),
     bandMinutes,
     maxTravelMinutes,
+    startISO: formatISO(startDate, startSec),
   };
 }
 
@@ -324,7 +354,8 @@ function computeIsochrone(q) {
     type: 'FeatureCollection',
     meta: {
       origin: q.origin,
-      startTime: formatHHMM(q.startSec),
+      startTime: q.startISO,
+      startTimeLocal: formatHHMM(q.startSec),
       day: q.dayType,
       bandMinutes: q.bandMinutes,
       maxTravelMinutes: q.maxTravelMinutes,

@@ -8,3 +8,6 @@
 2026-10-22 10:19 HIRE: release-smoke-tester (the data-folder deploy fault was only found by hand after release)
 2026-10-22 10:19 HIRE: oracle-validator (need an independent truth for travel times, ResRobot)
 2026-10-22 10:19 HIRE: mobile-ux-tester (requirements demand mobile and desktop usability, nobody tests the live tiles)
+2026-10-22 10:22 HIRE: polygon-quality-reviewer (engine shape and size faults slip past unit tests, marlin hit a 29 MB answer)
+2026-10-22 10:22 HIRE: a11y-reviewer (touch-friendly and usable UI is a requirement, nobody checks accessibility)
+2026-10-22 10:22 HIRE: swedish-copy-reviewer (Swedish UI is a requirement, strings come from two teams)

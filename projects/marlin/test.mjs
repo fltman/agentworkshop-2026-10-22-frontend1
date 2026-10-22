@@ -390,6 +390,82 @@ test('a 120 minute answer stays small enough to send to a phone', () => {
   assert.ok(packed < wireCeiling, 'gzipped payload ' + packed + ' over ceiling ' + wireCeiling);
 });
 
+test('the start time is echoed as a full ISO string with the Stockholm offset', () => {
+  const iso = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T09:00:00+02:00', maxTravelMinutes: 15,
+  })));
+  assert.equal(iso.meta.startTime, '2026-10-22T09:00:00+02:00',
+    'tomfor sent ISO and got HH:MM back; it must round-trip');
+  assert.equal(iso.meta.startTimeLocal, '09:00');
+
+  // Same instant written in UTC must resolve to the same Stockholm wall clock.
+  const utc = computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '2026-10-22T07:00:00Z', maxTravelMinutes: 15,
+  })));
+  assert.equal(utc.meta.startTime, '2026-10-22T09:00:00+02:00');
+});
+
+test('any whole minute from 5 to 120 is accepted, outside that is rejected', () => {
+  // tomfor sent 33 and the contract claimed multiple-of-5. We dropped the rule
+  // rather than start rejecting a value we compute correctly.
+  assert.equal(parseRequest(JSON.stringify({ origin: ORIGIN, maxTravelMinutes: 33 }))
+    .maxTravelMinutes, 33);
+  for (const bad of [4, 0, 121, -5]) {
+    assert.throws(
+      () => parseRequest(JSON.stringify({ origin: ORIGIN, maxTravelMinutes: bad })),
+      (err) => err.code === 'bad_request',
+      'maxTravelMinutes ' + bad + ' must be rejected');
+  }
+});
+
+test('a wider access walk never reaches fewer stops', () => {
+  const reached = (accessMinutes) => computeIsochrone(parseRequest(JSON.stringify({
+    origin: ORIGIN, startTime: '09:00', maxTravelMinutes: 30, walking: { accessMinutes },
+  }))).meta.stopsReached;
+  let last = 0;
+  for (const m of [5, 10, 15, 25]) {
+    const now = reached(m);
+    assert.ok(now >= last, 'access ' + m + ' min reached ' + now + ', was ' + last);
+    last = now;
+  }
+});
+
+test('fit() never drops a disc whose centre ends up uncovered (vijay-team hole bug)', () => {
+  const bands = require('../../board/plugins/marlin/bands.js');
+  const { haversine } = require('../../board/plugins/marlin/isochrone.js');
+
+  // Three discs on a line: O covers B at a higher slack than B needs to
+  // cover C. At the band's base slack only C is covered (by B; B itself
+  // survives), which is fine - B still stands in for C's position. The old
+  // bug: forcing a SECOND refinement pass (by exceeding the polygon budget)
+  // re-decimated the already-reduced set instead of the original discs, so
+  // once that second pass raised the slack enough to cover B by O, C's
+  // position was gone for good even though O never covers C directly.
+  const lat = 59.33;
+  const metresToLat = (m) => m / 111320;
+  const O = { lat, lon: 18.06, r: 1000 };
+  const B = { lat: lat + metresToLat(900), lon: 18.06, r: 500 };
+  const C = { lat: lat + metresToLat(1300), lon: 18.06, r: 200 };
+  // Far-away, mutually non-overlapping filler discs whose only job is to
+  // exceed the 50-minute band's polygon budget (550) and force the
+  // multi-pass refinement loop that the bug lived in.
+  const filler = [];
+  for (let i = 0; i < 560; i++) {
+    filler.push({ lat: lat + 10 + i * 0.001, lon: 18.06, r: 1 });
+  }
+  const discs = [O, B, C, ...filler].map((d) => ({ ...d })); // fit()/decimate() sort in place
+
+  const edgeSeconds = 50 * 60; // budgetFor(): max 550, slack 0.7 - needs a second pass here
+  const kept = bands.fit(discs, edgeSeconds);
+  assert.ok(kept.length >= 1, 'must keep at least one disc');
+
+  for (const original of [O, B, C]) {
+    const covered = kept.some((k) => haversine(original.lat, original.lon, k.lat, k.lon) <= k.r + 1e-6);
+    assert.ok(covered, 'disc at ' + original.lat + ',' + original.lon + ' (r=' + original.r +
+      ') has no coverage in the final band - this is the hole bug');
+  }
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try {

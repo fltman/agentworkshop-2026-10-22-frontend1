@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: release-smoke-tester
 description: After every release round, smoke-tests our live endpoints, our tile and the other teams' health endpoints. Use PROACTIVELY when the colony or release posts in #build that something is live or merged.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 # Release Smoke Tester

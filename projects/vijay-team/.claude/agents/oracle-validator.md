@@ -3,7 +3,6 @@ include-custom-instructions: true
 name: oracle-validator
 description: Validates travel times from our data and marlin's engine against the ResRobot journey planner as an independent truth. Use after the engine switches to real data and when a result looks implausible.
 tools: Read, Grep, Glob, Bash
-model: sonnet
 ---
 
 # Oracle Validator
