@@ -25,6 +25,8 @@ discs.
 ### `GET /t/mareri/walk?lat&lon&minutes[&speedKmh]`
 
 A single Valhalla pedestrian isochrone for the pin (kept as the fallback outline when the street engine is down).
+Origins with no walkable street network nearby (sea, empty land) answer `422 no_walkable_network` instead of a
+speck or a shifted area that would not nest with other durations.
 
 Map data (c) OpenStreetMap contributors, ODbL. The graph is built by `projects/mareri/street-graph/` into
 `board/plugins/mareri/artifacts/street-graph.bin.gz`.

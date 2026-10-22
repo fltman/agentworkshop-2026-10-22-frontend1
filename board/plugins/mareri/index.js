@@ -46,6 +46,36 @@ function upstreamError(msg) {
   return e;
 }
 
+function noNetworkError() {
+  const e = new Error('no walkable network at this point');
+  e.noNetwork = true;
+  return e;
+}
+
+function inRing(x, y, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+// Off-road origins make the router answer with a speck at the origin or with an area elsewhere;
+// neither nests with the other durations, so they are refused instead of returned.
+function usableArea(geom, lat, lon, minutes, speedKmh) {
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+  const wantMetres = (speedKmh * 1000 / 60) * minutes * 0.3;
+  const kLon = Math.cos(lat * Math.PI / 180) * 111320;
+  const nearRing = (r) => r.some(([x, y]) => Math.hypot((x - lon) * kLon, (y - lat) * 111320) < 150);
+  if (!polys.some((p) => inRing(lon, lat, p[0]) || nearRing(p[0]))) return false;
+  let reach = 0;
+  for (const p of polys) {
+    for (const [x, y] of p[0]) reach = Math.max(reach, Math.hypot((x - lon) * kLon, (y - lat) * 111320));
+  }
+  return reach >= Math.min(wantMetres, 150);
+}
+
 async function walkArea(lat, lon, minutes, speedKmh) {
   const key = [lat.toFixed(4), lon.toFixed(4), minutes, speedKmh].join('|');
   if (cache.has(key)) return cache.get(key);
@@ -78,6 +108,8 @@ async function walkArea(lat, lon, minutes, speedKmh) {
   const data = await r.json();
   const feat = data && data.features && data.features[0];
   if (!feat || !feat.geometry) throw upstreamError('router returned no area');
+
+  if (!usableArea(feat.geometry, lat, lon, minutes, speedKmh)) throw noNetworkError();
 
   const out = {
     type: 'Feature',
@@ -284,7 +316,9 @@ module.exports = {
     try {
       send(res, 200, await walkArea(lat, lon, minutes, speedKmh));
     } catch (err) {
-      if (err.name === 'AbortError') {
+      if (err.noNetwork) {
+        fail(res, 422, 'no_walkable_network', 'No walkable street network at this point.', 'Inget gångbart gatunät vid den här punkten.');
+      } else if (err.name === 'AbortError') {
         fail(res, 504, 'timeout', 'The street router took too long.', 'Ruttjänsten svarade för långsamt.');
       } else {
         console.error('[mareri]', err && err.message);
