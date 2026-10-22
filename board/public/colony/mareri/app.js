@@ -335,7 +335,8 @@
         egressMinutes: intVal('walk-dest'),
         transferMinutes: intVal('walk-transfer')
       },
-      bandMinutes: 5
+      bandMinutes: 5,
+      arriveBy: $('arrive-by').checked
     };
   }
 
@@ -391,6 +392,7 @@
     try {
       try {
         if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl);
+        if (body.arriveBy) return await postEngine(FALLBACK_ENGINE_URL, body, ctrl); // reverse search lives in marlin
         return await postEngine(ENGINE_URL, body, ctrl);
       } catch (e) {
         if (e.name === 'AbortError' || !streetEngineDown(e)) throw e;
@@ -730,9 +732,9 @@
       } else {
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
         speakSummary(fc);
-        setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' ? body : null);
+        setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' && !body.arriveBy ? body : null);
         if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
-        else if (!(fc && fc.meta && fc.meta.walkOnly)) loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
+        else if (!(fc && fc.meta && fc.meta.walkOnly) && !body.arriveBy) loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {
           panel.classList.add('collapsed');
           toggle.setAttribute('aria-expanded', 'false');
@@ -763,6 +765,7 @@
     var h = new URLSearchParams();
     h.set('ll', p.lat.toFixed(5) + ',' + p.lng.toFixed(5));
     Object.keys(HASH_FIELDS).forEach(function (k) { h.set(k, $(HASH_FIELDS[k]).value); });
+    h.set('a', $('arrive-by').checked ? '1' : '0');
     h.set('m', Array.prototype.slice.call(modesBox.querySelectorAll('input:checked'))
       .map(function (cb) { return cb.value; }).join(','));
     history.replaceState(null, '', '#' + h.toString());
@@ -783,6 +786,7 @@
       var on = h.get('m').split(',');
       modesBox.querySelectorAll('input').forEach(function (cb) { cb.checked = on.indexOf(cb.value) !== -1; });
     }
+    $('arrive-by').checked = h.get('a') === '1';
     syncTravel();
     return true;
   }
