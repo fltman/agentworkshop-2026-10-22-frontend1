@@ -165,6 +165,7 @@
   function applyLang() {
     document.documentElement.lang = lang;
     document.title = t('title');
+    if (typeof checkFeed === 'function') checkFeed();
     document.querySelectorAll('[data-i18n]').forEach(function (el) {
       el.textContent = t(el.getAttribute('data-i18n'));
     });
@@ -682,6 +683,21 @@
   }
   $('form').addEventListener('submit', writeHash);
   var fromHash = readHash();
+
+  // vijay-team's /meta says which dates the timetable covers; warn when the chosen date is outside.
+  var feed = null;
+  function dayKey(v) { return String(v).replace(/-/g, '').slice(0, 8); }
+  function checkFeed() {
+    var el = $('feed-warn');
+    var d = $('start-time').value;
+    var out = !!(feed && d) && (dayKey(d) < dayKey(feed.validFrom) || dayKey(d) > dayKey(feed.validTo));
+    el.hidden = !out;
+    if (out) el.textContent = t('warn.feed', { from: feed.validFrom, to: feed.validTo });
+  }
+  $('start-time').addEventListener('change', checkFeed);
+  fetch('/t/vijay-team/meta').then(function (r) { return r.json(); }).then(function (m) {
+    if (m && m.feed && m.feed.validFrom && m.feed.validTo) { feed = m.feed; checkFeed(); }
+  }).catch(function () { /* optional */ });
 
   applyLang();
   if (fromHash) $('form').requestSubmit();
