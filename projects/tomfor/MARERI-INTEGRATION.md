@@ -110,6 +110,49 @@ Walk-only mode (proposed, #build 272/307, not agreed yet): new keys the adapter 
 | walkOnly ({n} = minutes) | All transport types are off, so the map shows only how far you can walk in {n} min. | Alla trafikslag är avstängda, så kartan visar bara hur långt du hinner gå på {n} min. |
 | err.walkUnavailable | The walking area could not be calculated right now. Turn on at least one transport type, or try again in a minute. | Gångområdet kunde inte beräknas just nu. Slå på minst ett trafikslag, eller försök igen om en minut. |
 
+Share link, screen-reader summary and departures card (#build 345 items 4, 6, 5): additive keys, unused until
+mareri renders them. bandsSummary matches vijay-team's VijaySummary.describe() wording ("Inom 30 min: 1027 stationer").
+The same texts are in strings.js as share.button, share.copied, share.failed(.fix), a11y.summaryHeading,
+a11y.bandsSummary, departures.title, departures.none, departures.towards.
+
+| key | en | sv |
+|---|---|---|
+| shareLink | Share link | Dela länk |
+| shareCopied | Link copied | Länken kopierad |
+| err.shareFailed | The link could not be copied. Copy the address from the browser address bar instead. | Länken kunde inte kopieras. Kopiera adressen från webbläsarens adressfält i stället. |
+| summaryHeading | Summary of the map | Sammanfattning av kartan |
+| bandsSummary ({min}, {count}) | Within {min} min: {count} stations | Inom {min} min: {count} stationer |
+| departuresTitle | Next departures | Nästa avgångar |
+| departuresNone | No departures in the next hour from this stop. | Inga avgångar inom den närmaste timmen från den här hållplatsen. |
+| departuresTowards ({dest}) | Towards {dest} | Mot {dest} |
+
+New features from the ideas doc (#build 371-376, asked by vijay-team): meeting point (VijayCompare.meeting),
+reliable commute (VijayCompare.reliability), first/last service (/t/vijay-team/service), feed validity
+(/t/vijay-team/meta feed.validFrom/validTo), arrive-by and return trip (wait for marlin). Additive, unused until
+mareri renders them. The same texts are in strings.js as meeting.*, commute.*, service.first/last/ended,
+feed.outOfRange(.fix), arriveBy.*, returnTrip.*. No wheelchair wording anywhere: the SL GTFS has no wheelchair data.
+
+| key | en | sv |
+|---|---|---|
+| meetingTitle | Meeting point | Mötesplats |
+| meetingHint | Place two pins to find a fair place to meet. | Placera två nålar för att hitta en rättvis plats att mötas på. |
+| meetingPoint ({stop}, {a}, {b}) | Meet at {stop}: {a} min for you, {b} min for the other person | Mötas vid {stop}: {a} min för dig, {b} min för den andra |
+| meetingNone ({max}) | No common meeting point within {max} min. Try a longer travel time or move a pin. | Ingen gemensam mötesplats inom {max} min. Prova en längre restid eller flytta en nål. |
+| commuteReliable | Reliable commute only | Bara pålitlig pendling |
+| commuteNote | Shows only places you reach in time whatever minute you leave, not just with lucky timing. | Visar bara platser du hinner till oavsett vilken minut du åker, inte bara med tur. |
+| commuteLucky | Reachable only with lucky timing | Nås bara om tiderna passar |
+| serviceFirst ({time}) | First departure {time} | Första avgång {time} |
+| serviceLast ({time}) | Last departure {time} | Sista avgång {time} |
+| serviceEnded | No more departures today from this stop. | Inga fler avgångar i dag från den här hållplatsen. |
+| warn.feedOutOfRange ({from}, {to}) | Timetable data covers {from} to {to}; results for this date may be wrong. Choose a date between {from} and {to}. | Tidtabellsdatan gäller {from} till {to}; resultaten för det här datumet kan vara fel. Välj ett datum mellan {from} och {to}. |
+| arriveByToggle | Arrive by | Framme senast |
+| arriveByLabel ({time}) | Arrive by {time} | Framme senast {time} |
+| arriveByNote ({time}) | The map shows how long it takes to get to the pin by {time}. | Kartan visar hur lång tid det tar att komma till nålen senast {time}. |
+| err.arriveByUnavailable | Arrive by is not available yet. | Framme senast finns inte än. |
+| returnTripToggle | Check the trip back | Kontrollera resan tillbaka |
+| returnTripLabel ({max}) | Places you can reach and get back from within {max} min | Platser du kan resa till och tillbaka från inom {max} min |
+| returnTripNone ({max}) | No place found that you can reach and get back from within {max} min. | Ingen plats hittades som du kan resa till och tillbaka från inom {max} min. |
+
 Keys we checked and left alone (already natural): hint, origin, startTime, maxTravel, maxWait,
 maxTransfers, walkDest, walkTransfer, modes, update, calculating, done, legend, minutes, mode.*,
 err.noModes, err.badTime, err.badNumber, err.timeout. Mode names match tomfor's exactly.
