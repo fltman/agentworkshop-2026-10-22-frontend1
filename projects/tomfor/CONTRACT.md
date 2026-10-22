@@ -15,6 +15,7 @@ tomfor has no tile page: per filbac's `#build` post 290 the group shows one tile
 | `/colony/tomfor/search.js` | debounced address search (Nominatim, Stockholm area) and "my location" |
 | `/colony/tomfor/mareri-adapter.js` | classic script for the group app: wording, aria-labels, `window.TomforMareri.errorText` |
 | `/colony/tomfor/walk-mode.js` | classic script: walk-only bands via filbac's gateway (mareri `/walk` fallback, 30-min seam repair) and a Walk chip, `window.TomforWalk`. See [WALK-CONTRACT.md](WALK-CONTRACT.md) |
+| `/colony/tomfor/destination.js` | classic script: "type a destination, get a sentence" from mareri `POST /t/mareri/journey`, `window.TomforDestination` |
 
 Classic script load (between the app's `i18n.js` and `app.js`):
 
@@ -83,6 +84,38 @@ Classic script for /colony/mareri: better EN/SV wording merged into window.I18N,
 Example: `errorMessage('sv', {status: 422, error: 'nothing_reachable'}).text` gives `Inställningarna är för snäva.`
 
 `fetchJson(url, opts?, timeoutMs = 15000)` is a fetch wrapper that rejects with `{status, ...body}` on non-2xx and an AbortError on timeout, so `catch (e) { errorMessage(lang, e) }` just works.
+
+## destination.js
+
+"Type a destination, get a sentence" (brainstorm idea 492). One classic script, no build step, no dependencies; it
+loads `search.js` and `errors.js` on demand and works without them (own EN/SV strings, `lat, lon` typed directly).
+
+```html
+<script src="/colony/tomfor/destination.js"></script>
+```
+
+- `TomforDestination.describeJourney(lang, journey, opts?)` -> `{text, srText, kind}`. `journey` is mareri's
+  `POST /t/mareri/journey` answer or its error body (`{status, error, message, message_sv}`). `kind`: `journey`,
+  `walkOnly` (no ride legs), `walkFaster` (`opts.walkOnlyMinutes` <= total), `arriveBy` (`opts.arriveBy` or
+  `opts.request.arriveBy`; deadline from `opts.deadline` or `request.startTime`), `outOfReach` (404 `not_reachable`,
+  uses `opts.request.maxTravelMinutes` and optional `opts.nearest {name, minutes}`), `unavailable` (5xx/network),
+  `error` (other codes via errors.js). `opts.place` is the label (default "Your destination"/"Ditt resmål").
+  "Leave" is the first departure minus the walk to it. `srText` spells out every leg for screen readers.
+- `TomforDestination.fetchJourney(request, {lat, lon}, {origin?, endpoint?, signal?})` posts the isochrone request plus `target`.
+- `TomforDestination.attach(container, {getRequest, getOrigin?, onResult?, lang?, endpoint?})` adds a "To"/"Till"
+  combobox (Nominatim via search.js), calls `/journey` with the request behind the shown map and writes the sentence
+  into an `aria-live` region. `onResult({place, journey, error, text, srText, kind})` can draw the route.
+  Returns `{input, live, go(place), setLang(lang), destroy()}`.
+
+Example, real answer captured 13:02 (T-Centralen to Gamla stan, `tests/fixtures/journey/gamlastan.json`):
+
+```js
+TomforDestination.describeJourney('en', journey, { place: 'Gamla stan' }).text
+// "Gamla stan: 13 min, leave 08:40, 4 min walk then metro 13 then 6 min walk"
+// sv: "Gamla stan: 13 min, åk 08:40, 4 min promenad och sedan tunnelbana 13 och sedan 6 min promenad"
+```
+
+Tests: `node tests/destination.test.mjs`.
 
 ## Walk-only mode (proposed)
 

@@ -58,7 +58,23 @@
       'err.arriveByUnavailable': 'Arrive by is not available yet.',
       returnTripToggle: 'Check the trip back',
       returnTripLabel: 'Places you can reach and get back from within {max} min',
-      returnTripNone: 'No place found that you can reach and get back from within {max} min.'
+      returnTripNone: 'No place found that you can reach and get back from within {max} min.',
+      destLabel: 'To',
+      destPlaceholder: 'Where do you want to go?',
+      destClear: 'Clear destination',
+      destSearching: 'Finding {place}…',
+      destSentence: '{place}: {min} min, leave {time}, {legs}',
+      destArriveBy: '{place}: leave by {time} to arrive {deadline}, {legs}',
+      destLegTransit: '{mode} {line}',
+      destLegWalk: '{min} min walk',
+      destLegThen: ' then ',
+      destWalkOnly: '{place}: {min} min walk, no transit needed',
+      destWalkFaster: '{place}: faster to walk, {min} min',
+      destOutOfReach: '{place} is not within {max} min. The nearest place you reach is {stop} ({min} min).',
+      destOutOfReachPlain: '{place} is not within {max} min.',
+      destOutOfReachFix: 'Try a longer travel time or more transport types.',
+      destNotFound: 'Could not find "{q}" in the Stockholm area. Try a street name or a station.',
+      destUnavailable: 'Trip details are not available right now. The map still shows how far you get.'
     },
     sv: {
       title: 'Restidskarta för Stockholm',
@@ -105,7 +121,23 @@
       'err.arriveByUnavailable': 'Framme senast finns inte än.',
       returnTripToggle: 'Kontrollera resan tillbaka',
       returnTripLabel: 'Platser du kan resa till och tillbaka från inom {max} min',
-      returnTripNone: 'Ingen plats hittades som du kan resa till och tillbaka från inom {max} min.'
+      returnTripNone: 'Ingen plats hittades som du kan resa till och tillbaka från inom {max} min.',
+      destLabel: 'Till',
+      destPlaceholder: 'Vart vill du åka?',
+      destClear: 'Rensa resmålet',
+      destSearching: 'Letar efter {place}…',
+      destSentence: '{place}: {min} min, åk {time}, {legs}',
+      destArriveBy: '{place}: åk senast {time} för att vara framme {deadline}, {legs}',
+      destLegTransit: '{mode} {line}',
+      destLegWalk: '{min} min promenad',
+      destLegThen: ' och sedan ',
+      destWalkOnly: '{place}: {min} min promenad, ingen kollektivtrafik behövs',
+      destWalkFaster: '{place}: snabbare att gå, {min} min',
+      destOutOfReach: '{place} nås inte inom {max} min. Närmast du kommer är {stop} ({min} min).',
+      destOutOfReachPlain: '{place} nås inte inom {max} min.',
+      destOutOfReachFix: 'Prova en längre restid eller fler trafikslag.',
+      destNotFound: 'Hittade inte ”{q}” i Stockholmsområdet. Prova ett gatunamn eller en station.',
+      destUnavailable: 'Resdetaljer finns inte just nu. Kartan visar ändå hur långt du kommer.'
     }
   };
 

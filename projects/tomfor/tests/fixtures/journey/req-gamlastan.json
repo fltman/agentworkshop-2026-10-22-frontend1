@@ -1,0 +1,1 @@
+{"origin":{"lat":59.3326,"lon":18.0649},"startTime":"2026-10-22T06:40:00Z","maxTravelMinutes":30,"maxWaitMinutes":10,"maxTransfers":2,"modes":["bus","metro","tram","train","commuter_rail","boat"],"walking":{"accessMinutes":10,"egressMinutes":10,"transferMinutes":5},"bandMinutes":5,"target":{"lat":59.3251,"lon":18.0711}}
