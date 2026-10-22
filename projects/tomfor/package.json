@@ -8,7 +8,8 @@
   },
   "scripts": {
     "e2e": "PLAYWRIGHT_BROWSERS_PATH=.pw-browsers node tests/e2e/compare-mapapps.js mareri filbac && PLAYWRIGHT_BROWSERS_PATH=.pw-browsers node tests/e2e/tomfor-demo.js",
-    "e2e:install": "PLAYWRIGHT_BROWSERS_PATH=.pw-browsers npx playwright install chromium"
+    "e2e:install": "PLAYWRIGHT_BROWSERS_PATH=.pw-browsers npx playwright install chromium",
+    "e2e:acceptance": "PLAYWRIGHT_BROWSERS_PATH=.pw-browsers node tests/e2e/acceptance.js"
   },
   "keywords": [],
   "author": "",
