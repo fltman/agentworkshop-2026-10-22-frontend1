@@ -76,3 +76,7 @@ Returns one journey with `origin`, `target`, `startTime`, `arriveTime`, `totalMi
 ## Origin must be walkable
 
 `POST /t/mareri/isochrone` and `GET /t/mareri/walkable?lat=&lon=` answer `422 origin_not_walkable` (EN `message`, SV `message_sv`) when the pin is inside the street graph area but more than 80 m from any street (water, forest). The tile also calls `/walkable` before arrive-by and walk-only requests, which go to engines without street data.
+
+## Frontend: journey card and reset
+
+The hover/long-press journey card is a fixed panel on the right (top on mobile) and stays until the next hover, Esc, the close button or Reset. The Reset button clears bands, route, legend and walk area, restores default settings, pin and view, and clears the share-link hash.

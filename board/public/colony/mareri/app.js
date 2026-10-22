@@ -169,6 +169,9 @@
     document.querySelectorAll('[data-i18n]').forEach(function (el) {
       el.textContent = t(el.getAttribute('data-i18n'));
     });
+    document.querySelectorAll('[data-i18n-aria]').forEach(function (el) {
+      el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria')));
+    });
     document.querySelectorAll('.lang button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
     });
@@ -443,7 +446,8 @@
     return MODE_COLORS[leg.mode] || '#334155';
   }
 
-  function hideJourney() {
+  function hideJourney(keepCard) {
+    if (keepCard !== true) $('journey-panel').hidden = true;
     journeyToken++;
     clearTimeout(journeyTimer);
     if (journeyCtrl) { journeyCtrl.abort(); journeyCtrl = null; }
@@ -529,24 +533,18 @@
     return box;
   }
 
-  function journeyTooltip(content, latlng) {
-    var at = map.latLngToContainerPoint(latlng);
-    var tip = L.tooltip({
-      permanent: true, direction: at.x < map.getSize().x / 2 ? 'right' : 'left',
-      offset: [12, 0], opacity: 1, className: 'journey-tip', interactive: false
-    }).setLatLng(latlng).setContent(content).addTo(journeyLayer);
-    var rect = tip.getElement().getBoundingClientRect();
-    var bounds = map.getContainer().getBoundingClientRect();
-    var bottom = Math.min(bounds.bottom, window.innerHeight - parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--sheet-h') || 0));
-    var dx = Math.max(bounds.left + 8 - rect.left, Math.min(0, bounds.right - 8 - rect.right));
-    var dy = Math.max(bounds.top + 8 - rect.top, Math.min(0, bottom - 8 - rect.bottom));
-    tip.setLatLng(map.containerPointToLatLng([at.x + dx, at.y + dy]));
+  // The card lives in a fixed panel on the right; the route itself is drawn on the map.
+  function journeyTooltip(content) {
+    var body = $('journey-body');
+    body.textContent = '';
+    body.appendChild(content);
+    $('journey-panel').hidden = false;
   }
 
   function journeyNotice(latlng, key) {
     journeyLayer.clearLayers();
     journeyShown = null;
-    journeyTooltip(journeyEl('div', 'j-card', t(key)), latlng);
+    journeyTooltip(journeyEl('div', 'j-card', t(key)));
   }
 
   // Ride legs are drawn along the real line geometry (vijay-team /shape) when it can be matched to the stops.
@@ -624,7 +622,7 @@
       pane: 'journey', interactive: false, radius: 7, weight: 3, color: '#ffffff', fillColor: '#0f172a', fillOpacity: 1
     });
     end.addTo(journeyLayer);
-    journeyTooltip(journeyContent(d), latlng);
+    journeyTooltip(journeyContent(d));
   }
 
   function rerenderJourney() {
@@ -676,10 +674,9 @@
   if (canHover) {
     map.on('mousemove', function (e) {
       if (!journeyBody || mapBusy) return;
-      hideJourney();
+      hideJourney(true);
       journeyTimer = setTimeout(function () { fetchJourney(e.latlng); }, 140);
     });
-    map.on('mouseout', hideJourney);
   }
   map.on('dragstart zoomstart movestart', function () { mapBusy = true; hideJourney(); });
   map.on('dragend zoomend moveend', function () { mapBusy = false; });
@@ -709,6 +706,7 @@
     el.addEventListener('pointercancel', cancel);
   })();
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideJourney(); });
+  $('journey-close').addEventListener('click', function () { hideJourney(); });
 
   // Screen-reader sentence ("Within 30 min: 1027 stations") from vijay-team's summary module.
   var stopsPromise = null;
@@ -823,6 +821,27 @@
   fetch('/t/vijay-team/meta').then(function (r) { return r.json(); }).then(function (m) {
     if (m && m.feed && m.feed.validFrom && m.feed.validTo) { feed = m.feed; checkFeed(); }
   }).catch(function () { /* optional */ });
+
+  // ---- Reset: back to a clean map ----
+  $('reset-map').addEventListener('click', function () {
+    if (inflight) inflight.abort();
+    setJourneyBody(null);
+    if (overlay) { map.removeLayer(overlay); overlay = null; }
+    lastBands = null;
+    $('legend').hidden = true;
+    $('summary').textContent = '';
+    clearWalk();
+    setStatus('');
+    $('form').reset();
+    $('start-time').value = nowLocalValue();
+    modesBox.querySelectorAll('input').forEach(function (cb) { cb.checked = true; });
+    syncTravel();
+    checkFeed();
+    pin.setLatLng(STOCKHOLM);
+    showOrigin();
+    map.setView(STOCKHOLM, 11);
+    history.replaceState(null, '', location.pathname + location.search);
+  });
 
   applyLang();
   if (fromHash) $('form').requestSubmit();
