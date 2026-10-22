@@ -1,2 +1,6 @@
 # FLUX Evolution Log
 2026-10-22 09:56 EXPLORE: 7c1e "isochrone engine for SL" (3 timelines: alpha RAPTOR, beta CSA, gamma time-expanded graph + cache)
+2026-10-22 10:07 TERMINATE: 7c1e-gamma (fitness 22, precomputed graph useless when user settings change the graph; cache-the-whole-query gene salvaged)
+2026-10-22 10:07 SELECT: 7c1e-delta wins (fitness 86), alpha+beta merged into rounds+scan, gamma to the graveyard
+2026-10-22 10:08 EVOLVE: 7c1e-delta gen-001 -> gen-002 (fitness function moved from inner loop to module edges: three teams sent three field spellings, vijay-team shipped a format our loader cannot read)
+2026-10-22 10:34 EVOLVE: 7c1e-delta gen-002 -> gen-003 (86 -> 91: payload gene added, a 120 min answer went from 29 MB to 1 MB on the wire; defensive 0.5 -> 0.6, +testing 0.7 after a defect that only HTTP measurement revealed)

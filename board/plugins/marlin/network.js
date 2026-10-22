@@ -3,158 +3,243 @@
 /**
  * Network loading for the marlin isochrone engine.
  *
- * Reads the preprocessed GTFS artifacts produced by vijay-team from
- * <dataDir>/network/ and turns them into the flat, index-based structures the
- * algorithm wants. Falls back to a small synthetic fixture so the engine is
- * testable and demonstrable before the real data lands.
+ * Reads vijay-team's preprocessed SL network and flattens it into columnar
+ * typed arrays. No request ever calls Trafiklab, and no request ever calls
+ * vijay-team either: the file is read once, from disk, at startup.
  *
- * See projects/marlin/CONTRACT.md for the file formats.
+ * Their format (projects/vijay-team/CONTRACT.md):
+ *   { stops: [{id,name,lat,lon,modes}],
+ *     trips: [{route, mode, stops: [stopIndex], times: [secondsAfterMidnight]}],
+ *     transfers: [{from, to, walkSec}] }
+ *
+ * Ours is one connection per consecutive pair of a trip, because the engine
+ * scans connections in departure order. Columnar Int32Arrays rather than
+ * objects: a weekday is around 700k connections, and 700k small objects is
+ * hundreds of megabytes we do not need to spend.
  */
 
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
 const MODES = ['bus', 'metro', 'tram', 'train', 'commuter_rail', 'boat'];
+const DAY_TYPES = ['weekday', 'saturday', 'sunday'];
 
-function readJsonIfExists(file) {
-  try {
-    if (!fs.existsSync(file)) return null;
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (err) {
-    console.error('[marlin] could not read', path.basename(file), err && err.message);
-    return null;
-  }
+// vijay-team's committed artifacts. Read-only: their folder, their data.
+// They have used both folder names, so we try both rather than break on a rename.
+const VIJAY_DIRS = [
+  path.join(__dirname, '..', 'vijay-team', 'artifacts'),
+  path.join(__dirname, '..', 'vijay-team', 'data'),
+];
+
+function dayTypeFor(date) {
+  const day = date.getDay();
+  if (day === 0) return 'sunday';
+  if (day === 6) return 'saturday';
+  return 'weekday';
 }
 
-function readJsonLinesIfExists(file) {
-  try {
-    if (!fs.existsSync(file)) return null;
-    const out = [];
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-      const t = line.trim();
-      if (!t) continue;
-      out.push(JSON.parse(t));
+function readNetworkFile(dir, dayType) {
+  const candidates = [
+    path.join(dir, 'network-' + dayType + '.json.gz'),
+    path.join(dir, 'network-' + dayType + '.json'),
+    path.join(dir, 'network.json.gz'),
+    path.join(dir, 'network.json'),
+  ];
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const buf = fs.readFileSync(file);
+      const text = file.endsWith('.gz')
+        ? zlib.gunzipSync(buf).toString('utf8')
+        : buf.toString('utf8');
+      return { raw: JSON.parse(text), file };
+    } catch (err) {
+      console.error('[marlin] could not read', path.basename(file), err && err.message);
     }
-    return out;
-  } catch (err) {
-    console.error('[marlin] could not read', path.basename(file), err && err.message);
-    return null;
   }
-}
-
-/** connections.jsonl is preferred: it is the big file and streams better. */
-function readCollection(dir, name) {
-  return readJsonLinesIfExists(path.join(dir, name + '.jsonl')) ||
-         readJsonIfExists(path.join(dir, name + '.json'));
+  return null;
 }
 
 /**
- * Builds the in-memory network. Everything downstream works on integer stop
- * indices, never on stop id strings: that is what keeps the inner loop fast.
+ * @param {object} raw     vijay-team's network document
+ * @param {string} source  'gtfs' or 'fixture'
  */
-function build(raw, source) {
-  const stops = [];
+function build(raw, source, label) {
+  const stops = (raw.stops || []).map((s) => ({
+    id: String(s.id),
+    name: s.name || String(s.id),
+    lat: Number(s.lat),
+    lon: Number(s.lon),
+    modes: Array.isArray(s.modes) ? s.modes : [],
+  }));
+
+  const stopCount = stops.length;
   const indexById = new Map();
-
-  for (const s of raw.stops) {
-    const id = String(s.id);
-    if (indexById.has(id)) continue;
-    indexById.set(id, stops.length);
-    stops.push({
-      id,
-      name: s.name || id,
-      lat: Number(s.lat),
-      lon: Number(s.lon),
-      modes: Array.isArray(s.modes) ? s.modes : [],
-    });
+  const indexByName = new Map();
+  for (let i = 0; i < stopCount; i++) {
+    indexById.set(stops[i].id, i);
+    if (!indexByName.has(stops[i].name)) indexByName.set(stops[i].name, i);
   }
 
-  const connections = [];
-  const tripIds = new Map();
-  const modesPresent = new Set();
+  // Count first, so each typed array is allocated exactly once.
+  const trips = raw.trips || [];
+  let upperBound = 0;
+  for (const t of trips) {
+    const n = Math.min(t.stops.length, t.times.length);
+    if (n > 1) upperBound += n - 1;
+  }
 
-  for (const c of raw.connections) {
-    const from = indexById.get(String(c.from));
-    const to = indexById.get(String(c.to));
-    if (from === undefined || to === undefined) continue;
+  const tFrom = new Int32Array(upperBound);
+  const tTo = new Int32Array(upperBound);
+  const tDep = new Int32Array(upperBound);
+  const tArr = new Int32Array(upperBound);
+  const tTrip = new Int32Array(upperBound);
+  const tMode = new Uint8Array(upperBound);
 
-    const dep = Number(c.dep);
-    const arr = Number(c.arr);
-    if (!Number.isFinite(dep) || !Number.isFinite(arr) || arr < dep) continue;
-
-    const tripKey = String(c.trip != null ? c.trip : c.route + ':' + dep);
-    let trip = tripIds.get(tripKey);
-    if (trip === undefined) {
-      trip = tripIds.size;
-      tripIds.set(tripKey, trip);
+  const modeIds = new Map();
+  const modeNames = [];
+  const modeIdOf = (name) => {
+    let id = modeIds.get(name);
+    if (id === undefined) {
+      id = modeNames.length;
+      modeIds.set(name, id);
+      modeNames.push(name);
     }
+    return id;
+  };
 
-    const mode = String(c.mode || 'bus');
-    modesPresent.add(mode);
-
-    connections.push({
-      from, to, dep, arr, trip, mode,
-      route: c.route != null ? String(c.route) : '',
-      service: c.service != null ? String(c.service) : '',
-    });
+  let w = 0;
+  let tripId = 0;
+  for (const t of trips) {
+    const seq = t.stops;
+    const times = t.times;
+    const n = Math.min(seq.length, times.length);
+    if (n < 2) continue;
+    const mode = modeIdOf(String(t.mode || 'bus'));
+    const id = tripId++;
+    for (let i = 0; i + 1 < n; i++) {
+      const from = seq[i];
+      const to = seq[i + 1];
+      const dep = times[i];
+      const arr = times[i + 1];
+      if (!(from >= 0 && from < stopCount && to >= 0 && to < stopCount)) continue;
+      if (!Number.isFinite(dep) || !Number.isFinite(arr) || arr < dep) continue;
+      tFrom[w] = from; tTo[w] = to; tDep[w] = dep; tArr[w] = arr;
+      tTrip[w] = id; tMode[w] = mode;
+      w++;
+    }
   }
 
-  // A single pass in departure order is the whole point of the scan, so this
-  // sort is done once at startup and never again.
-  connections.sort((a, b) => a.dep - b.dep || a.arr - b.arr);
+  // Sort by departure once, by sorting an index permutation and writing the
+  // columns back in that order.
+  const order = new Array(w);
+  for (let i = 0; i < w; i++) order[i] = i;
+  order.sort((a, b) => tDep[a] - tDep[b] || tArr[a] - tArr[b]);
 
-  const depTimes = new Int32Array(connections.length);
-  for (let i = 0; i < connections.length; i++) depTimes[i] = connections[i].dep;
+  const from = new Int32Array(w);
+  const to = new Int32Array(w);
+  const dep = new Int32Array(w);
+  const arr = new Int32Array(w);
+  const trip = new Int32Array(w);
+  const mode = new Uint8Array(w);
+  for (let i = 0; i < w; i++) {
+    const j = order[i];
+    from[i] = tFrom[j]; to[i] = tTo[j]; dep[i] = tDep[j];
+    arr[i] = tArr[j]; trip[i] = tTrip[j]; mode[i] = tMode[j];
+  }
 
-  const transfers = [];
-  for (let i = 0; i < stops.length; i++) transfers.push([]);
+  // Walking transfers in CSR form: the neighbours of stop s are
+  // transferTo[transferOffset[s] .. transferOffset[s + 1]].
+  const degree = new Int32Array(stopCount);
+  const valid = [];
   for (const t of raw.transfers || []) {
-    const from = indexById.get(String(t.from));
-    const to = indexById.get(String(t.to));
-    const seconds = Number(t.seconds);
-    if (from === undefined || to === undefined || from === to) continue;
-    if (!Number.isFinite(seconds) || seconds < 0) continue;
-    transfers[from].push({ to, seconds });
+    const f = t.from;
+    const v = t.to;
+    const sec = Number(t.walkSec !== undefined ? t.walkSec : t.seconds);
+    if (!(f >= 0 && f < stopCount && v >= 0 && v < stopCount) || f === v) continue;
+    if (!Number.isFinite(sec) || sec < 0) continue;
+    valid.push([f, v, Math.round(sec)]);
+    degree[f]++;
   }
+  const transferOffset = new Int32Array(stopCount + 1);
+  for (let i = 0; i < stopCount; i++) transferOffset[i + 1] = transferOffset[i] + degree[i];
+  const transferTo = new Int32Array(valid.length);
+  const transferSec = new Int32Array(valid.length);
+  const cursor = Int32Array.from(transferOffset.subarray(0, stopCount));
+  for (const [f, v, sec] of valid) {
+    const at = cursor[f]++;
+    transferTo[at] = v;
+    transferSec[at] = sec;
+  }
+
+  const present = new Set(modeNames);
 
   return {
     source,
-    dataVersion: (raw.meta && raw.meta.dataVersion) || 'unknown',
-    timezone: (raw.meta && raw.meta.timezone) || 'Europe/Stockholm',
+    label: label || source,
+    dataVersion: raw.date ? 'sl-gtfs-' + raw.date
+      : (raw.version ? 'v' + raw.version : 'unknown'),
+    dayType: raw.dayType || 'weekday',
+    timezone: 'Europe/Stockholm',
     stops,
     indexById,
-    connections,
-    depTimes,
-    transfers,
-    tripCount: tripIds.size,
-    modes: MODES.filter((m) => modesPresent.has(m)),
-    calendar: raw.calendar || {},
+    indexByName,
+    connectionCount: w,
+    from, to, dep, arr, trip, mode,
+    tripCount: tripId,
+    modeNames, modeIds,
+    transferOffset, transferTo, transferSec,
+    transferCount: valid.length,
+    modes: MODES.filter((m) => present.has(m)),
   };
 }
 
-function load(dataDir) {
-  const dir = path.join(dataDir || '.', 'network');
-  const stops = readCollection(dir, 'stops');
-  const connections = readCollection(dir, 'connections');
+/**
+ * Lazily loads one network per day type, so a deployment that only ever sees
+ * weekday queries never pays for the weekend files.
+ */
+function createStore(dataDir) {
+  const loaded = new Map();
+  const searchDirs = [
+    ...VIJAY_DIRS,
+    path.join(dataDir || '.', 'network'),
+    dataDir || '.',
+  ];
 
-  if (Array.isArray(stops) && stops.length && Array.isArray(connections)) {
-    const raw = {
-      meta: readJsonIfExists(path.join(dir, 'meta.json')) || {},
-      stops,
-      connections,
-      transfers: readCollection(dir, 'transfers') || [],
-      calendar: readJsonIfExists(path.join(dir, 'calendar.json')) || {},
-    };
-    const net = build(raw, 'gtfs');
-    console.log('[marlin] network loaded:', net.stops.length, 'stops,',
-      net.connections.length, 'connections,', net.dataVersion);
+  function loadDay(dayType) {
+    if (loaded.has(dayType)) return loaded.get(dayType);
+
+    let net = null;
+    for (const dir of searchDirs) {
+      const found = readNetworkFile(dir, dayType);
+      if (!found || !Array.isArray(found.raw.stops) || !found.raw.stops.length) continue;
+      const started = Date.now();
+      net = build(found.raw, 'gtfs', path.basename(found.file));
+      console.log('[marlin]', dayType, 'network:', net.stops.length, 'stops,',
+        net.connectionCount, 'connections,', net.transferCount, 'transfers from',
+        path.basename(found.file), 'in', Date.now() - started, 'ms');
+      break;
+    }
+
+    if (!net) {
+      const fixture = require('./fixture');
+      net = build(fixture.raw(), 'fixture', 'fixture');
+      console.log('[marlin] no preprocessed network found - running on the fixture');
+    }
+
+    loaded.set(dayType, net);
     return net;
   }
 
-  const fixture = require('./fixture');
-  const net = build(fixture.raw(), 'fixture');
-  console.log('[marlin] no preprocessed network in', dir, '- running on fixture');
-  return net;
+  return {
+    get(dayType) {
+      return loadDay(DAY_TYPES.includes(dayType) ? dayType : 'weekday');
+    },
+    loadedDays() {
+      return Array.from(loaded.keys());
+    },
+  };
 }
 
-module.exports = { load, build, MODES };
+module.exports = { createStore, build, dayTypeFor, MODES, DAY_TYPES };

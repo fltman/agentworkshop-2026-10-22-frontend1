@@ -6,6 +6,12 @@ const DATA = path.join(__dirname, 'artifacts');
 const DAY_TYPES = ['weekday', 'saturday', 'sunday'];
 const cache = {};
 const conns = {};
+let shapes = null;
+
+function loadShapes() {
+  if (!shapes) shapes = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(DATA, 'shapes.json.gz'))));
+  return shapes;
+}
 
 function load(type) {
   if (!cache[type]) {
@@ -66,6 +72,20 @@ module.exports = {
       });
       out.sort((a, b) => a.distM - b.distM);
       return json(res, 200, out.slice(0, 50));
+    }
+    if (p === 'routes') {
+      const { routes } = loadShapes();
+      let list = routes.map((r) => ({ name: r.name, mode: r.mode, lines: r.lines.length }));
+      const modes = (q.get('modes') || '').split(',').filter(Boolean);
+      if (modes.length) list = list.filter((r) => modes.includes(r.mode));
+      return json(res, 200, list);
+    }
+    if (p.startsWith('shape/')) {
+      const [, mode, ...rest] = p.split('/');
+      const name = decodeURIComponent(rest.join('/'));
+      const r = loadShapes().routes.find((x) => x.mode === mode && x.name === name);
+      if (!r) return json(res, 404, { error: 'unknown route' });
+      return json(res, 200, { type: 'Feature', properties: { name: r.name, mode: r.mode }, geometry: { type: 'MultiLineString', coordinates: r.lines } });
     }
     if (p === 'meta') {
       const out = {};

@@ -8,8 +8,10 @@ Base URL: `/t/marlin/` (same origin as The Square and as the colony tiles, so no
 Owner: team marlin. Only marlin changes this file. Changes are announced in `#build`
 before they ship.
 
-Status: **v1, implemented.** Runs on a synthetic fixture until vijay-team's preprocessed
-network is in place; the API shape does not change when the real data arrives.
+Status: **v1.1, implemented and running on vijay-team's real SL network.**
+6038 stops, 644k connections, a 120-minute query in well under a second.
+v1.1 adds field aliases, `day`, the `kind` error field and a much smaller payload.
+No v1 field was removed: anything written against v1 keeps working.
 
 ---
 
@@ -50,6 +52,23 @@ The one call the frontend needs. Everything is optional except `origin`.
 | `walking.egressMinutes` | 0…30 | 10 | longest walk from the last stop to the destination area |
 | `walking.transferMinutes` | 0…30 | 5 | longest walk when a transfer needs walking |
 | `bandMinutes` | 1…30 | 5 | width of one colour band |
+| `day` | `weekday`, `saturday`, `sunday` | derived from `startTime` | which timetable to use |
+
+### Field aliases
+
+mareri and filbac asked for different spellings. **All of them are accepted**, so nobody
+has to change their client. We take the first one present, in this order:
+
+| meaning | accepted spellings |
+|---|---|
+| origin | `origin`, `from`, `start` — each with `lat`/`latitude` and `lon`/`lng`/`longitude` |
+| travel budget | `maxTravelMinutes`, `max_travel_min`, `maxTravelMin`, `minutes` |
+| start time | `startTime`, `start_time`, `departAt`, `depart_at`, `time` |
+| wait limit | `maxWaitMinutes`, `max_wait_min`, `maxWaitMin` |
+| transfers | `maxTransfers`, `max_transfers`, `maxChanges` |
+| band width | `bandMinutes`, `band_min`, `bandMin`, `step` |
+| day | `day`, `dayType`, `day_type` |
+| walking | `walking`, `walk` — inner keys accept `speedKmh`/`speed_kmh`, `accessMinutes`/`access_min`/`toStopMin`, `egressMinutes`/`egress_min`/`toDestinationMin`, `transferMinutes`/`transfer_min` |
 
 Mode names are exactly the ones vijay-team uses:
 `bus`, `metro`, `tram`, `train`, `commuter_rail`, `boat`.
@@ -81,6 +100,8 @@ so a frontend can paint them in array order and let the nearer bands cover the f
       "properties": {
         "fromMinutes": 25,
         "toMinutes":   30,
+        "from_min":    25,
+        "to_min":      30,
         "bandIndex":   5,
         "color":       "#2c7bb6",
         "stops":       88
@@ -91,6 +112,8 @@ so a frontend can paint them in array order and let the nearer bands cover the f
 }
 ```
 
+- Band edges are given **twice**, as `fromMinutes`/`toMinutes` and as `from_min`/`to_min`,
+  for the same reason as the request aliases. They always hold the same value.
 - `features[i].properties.fromMinutes` / `toMinutes` are the band edges in minutes from
   the origin. With `bandMinutes: 5` and `maxTravelMinutes: 30` there are six bands:
   0–5, 5–10, 10–15, 15–20, 20–25, 25–30.
@@ -104,24 +127,49 @@ so a frontend can paint them in array order and let the nearer bands cover the f
 - A band with no reachable area is still present, with an empty `coordinates` array.
   The frontend never has to handle a missing band.
 
+### The geometry is an approximation, on purpose
+
+A band is the union of walking discs around every stop reached in time, and the discs are
+**not** unioned server-side — they overlap, and the frontend paints them with a solid
+fill. Two deliberate simplifications:
+
+- Discs smaller than 90 m are dropped: they are sub-pixel at any useful zoom.
+- A disc that is almost covered by a disc we already kept is dropped, and wide bands are
+  decimated harder than narrow ones, because a wide band is looked at zoomed out.
+
+Honest version: keeping every disc made a 120-minute answer **29 MB**. With decimation it
+is 4.3 MB, and gzipped on the wire **about 1 MB**. The outline is a few hundred metres
+coarser at two hours. We think that is the right trade; tell us in `#build` if it is not.
+
+### Compression
+
+The answer is gzipped when the request carries `accept-encoding: gzip` and the body is
+over 8 KB. `fetch()` in a browser does this for you and decompresses transparently — you
+do not have to do anything. A 30-minute answer is ~41 KB on the wire, 120 minutes ~1 MB.
+
 ### Errors
 
 Every error is JSON with the same shape, and an HTTP status that means something:
 
 ```json
 { "error": "no_stops_near_origin",
+  "code": "no_stops_near_origin",
+  "kind": "no_routes",
   "message": "No stop within a 10 minute walk of the pin.",
   "message_sv": "Ingen hållplats inom 10 minuters gångavstånd från nålen." }
 ```
 
-| status | `error` | when |
-|---|---|---|
-| 400 | `bad_request` | malformed JSON, missing origin, number out of range |
-| 400 | `unknown_mode` | a mode name that is not in the list above |
-| 422 | `no_stops_near_origin` | nothing reachable on foot from the pin |
-| 422 | `nothing_reachable` | stops found, but no departure fits the constraints |
-| 503 | `network_not_loaded` | the preprocessed network is not in place yet |
-| 500 | `internal` | anything else |
+`error` and `code` are the same string, our own precise name. `kind` is the coarser
+vocabulary mareri asked for, so a frontend can branch on three values instead of six.
+
+| status | `error` / `code` | `kind` | when |
+|---|---|---|---|
+| 400 | `bad_request` | `bad_request` | malformed JSON, missing origin, number out of range |
+| 400 | `unknown_mode` | `bad_request` | a mode name that is not in the list above |
+| 422 | `no_stops_near_origin` | `no_routes` | nothing reachable on foot from the pin |
+| 422 | `nothing_reachable` | `too_restrictive` | stops found, but no departure fits the constraints |
+| 503 | `network_not_loaded` | `unavailable` | the preprocessed network is not in place yet |
+| 500 | `internal` | `internal` | anything else |
 
 Both `message` (English) and `message_sv` (Swedish) are always present, so the frontend
 can show either language without mapping error codes itself.
@@ -141,8 +189,9 @@ Cheap liveness and readiness check. Never fails.
   "source": "fixture" }
 ```
 
-`source` is `"fixture"` while we run on synthetic test data and `"gtfs"` once vijay-team's
-real artifacts are loaded. The frontend can show a warning banner on `"fixture"`.
+`source` is `"vijay-team"` when we are on the real SL network and `"fixture"` when we fell
+back to synthetic test data. The frontend can show a warning banner on `"fixture"`.
+`health` also lists `transfers` and `days` (which timetables are loaded so far).
 
 ---
 
@@ -157,27 +206,21 @@ instead of offering a filter that returns nothing.
 
 ---
 
-## What marlin needs from vijay-team
+## Where the data comes from
 
-We read **files**, once, at startup. A user request never reaches vijay-team's service.
-Drop the artifacts in the plugin data directory under `network/`:
+We read **vijay-team's shipped files directly from disk**, read-only, lazily per day type:
+`board/plugins/vijay-team/data/network-{weekday,saturday,sunday}.json.gz`, exactly the
+format in `projects/vijay-team/CONTRACT.md`. A user request never reaches their service,
+and we never write in their folder.
 
-| file | contents |
-|---|---|
-| `meta.json` | `{ "dataVersion": "sl-gtfs-2026-10-21", "timezone": "Europe/Stockholm" }` |
-| `stops.json` | `[{ "id": "9001", "name": "T-Centralen", "lat": 59.33, "lon": 18.06, "modes": ["metro","bus"] }]` |
-| `connections.json` | `[{ "from": "9001", "to": "9002", "dep": 32400, "arr": 32580, "route": "17", "mode": "metro", "trip": "t1", "service": "wd" }]` |
-| `transfers.json` | `[{ "from": "9001", "to": "9003", "seconds": 180 }]` |
-| `calendar.json` | `{ "wd": { "days": [1,2,3,4,5] }, "sa": { "days": [6] } }` |
+If their files are not there we fall back to `<dataDir>/network/` and then to a built-in
+synthetic Stockholm fixture, so the engine always answers and `health` tells you which
+source is live. Nothing crashes.
 
-- `dep` and `arr` are **seconds after midnight**, service-day based, so a value above
-  86400 is a trip after midnight. We handle that.
-- `connections.json` does not have to be sorted; we sort and index it at startup.
-- A JSON Lines variant (`connections.jsonl`, one object per line) is accepted too and is
-  easier on memory for the big file. We try `.jsonl` first, then `.json`.
-
-If a file is missing we start anyway, answer `health` with `networkLoaded: false` and
-return 503 from `/isochrone` with a clear message. Nothing crashes.
+One note for vijay-team: their format gives a departure time per stop on a trip, so we
+take the arrival at the next stop to be that stop's departure time. That slightly
+overstates ride time on routes with long dwells. If they ever ship arrival times too, we
+will use them.
 
 ---
 

@@ -1,2 +1,6 @@
 # FLUX Evolution Log
 2026-10-22 10:04 EXPLORE: b4d2 "settings UI and legend" (3 timelines: α vanilla ES module, β web component, γ schema-driven form)
+2026-10-22 10:15 EVOLVE: b4d2-α gen-001 → gen-002 (n/a → 62)
+2026-10-22 10:15 TERMINATE: b4d2-β (fitness 15, never built, shadow DOM blocks consumer styling)
+2026-10-22 10:15 TERMINATE: b4d2-γ (fitness 20, never built, schema indirection not worth it for 7 controls)
+2026-10-22 10:15 SELECT: b4d2-α wins (fitness 62 vs 20), β and γ to the graveyard
