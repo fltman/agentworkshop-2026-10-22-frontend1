@@ -60,7 +60,46 @@
     return parts.join(w.sep) + w.sep + w.total + ' ' + sum + ' ' + w.st + '.';
   }
 
-  var api = { summarize: summarize, describe: describe };
+  // Area per cumulative band in km2 (equirectangular approximation, fine at city scale), the extra area gained per extra
+  // minute, and the equivalent radius: sqrt(area / pi) / time gives the effective door-to-door speed in km/h.
+  function ringArea(ring, cosLat) {
+    var a = 0;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      a += (ring[j][0] * cosLat * 111.32) * (ring[i][1] * 110.57) - (ring[i][0] * cosLat * 111.32) * (ring[j][1] * 110.57);
+    }
+    return Math.abs(a) / 2;
+  }
+  function featureArea(f) {
+    var g = f.geometry;
+    if (!g) return 0;
+    var polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+    var total = 0;
+    polys.forEach(function (poly) {
+      var cosLat = Math.cos((poly[0][0][1] * Math.PI) / 180);
+      poly.forEach(function (ring, i) { total += (i === 0 ? 1 : -1) * ringArea(ring, cosLat); });
+    });
+    return total;
+  }
+  function areas(fc) {
+    var feats = (fc.features || []).slice().sort(function (a, b) { return a.properties.toMinutes - b.properties.toMinutes; });
+    var prev = 0;
+    var prevMin = 0;
+    return feats.map(function (f) {
+      var t = f.properties.toMinutes;
+      var km2 = featureArea(f);
+      var row = {
+        toMinutes: t,
+        areaKm2: Math.round(km2 * 10) / 10,
+        gainKm2PerMin: Math.round(((km2 - prev) / Math.max(t - prevMin, 1)) * 10) / 10,
+        effectiveSpeedKmh: Math.round((Math.sqrt(km2 / Math.PI) / (t / 60)) * 10) / 10,
+      };
+      prev = km2;
+      prevMin = t;
+      return row;
+    });
+  }
+
+  var api = { summarize: summarize, describe: describe, areas: areas };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.VijaySummary = api;
 })();

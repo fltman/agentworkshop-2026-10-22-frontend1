@@ -171,6 +171,7 @@ const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
     return [a, b, sec];
   });
 
+  const CARRY_FROM = { weekday: 'weekday', saturday: 'weekday', sunday: 'saturday' };
   for (const type of Object.keys(dayTypes)) {
     const trips = [];
     const modes = stationModes.map(() => new Set());
@@ -180,6 +181,17 @@ const ymd = (d) => d.toISOString().slice(0, 10).replace(/-/g, '');
       const sIdx = t.stops.map((s) => idx.get(s));
       sIdx.forEach((i) => modes[i].add(route.mode));
       trips.push({ route: route.name, mode: route.mode, stops: sIdx, times: t.times });
+    }
+    // After-midnight carry-over: the previous service day's trips are still running at 00:30 on this calendar day.
+    // GTFS times of 24:00 and later belong to the day before, so shift that tail back by 24 h (Monday uses weekday's tail).
+    for (const t of tripsRaw.values()) {
+      if (!t.types.includes(CARRY_FROM[type])) continue;
+      const k = t.times.findIndex((x) => x >= 86400);
+      if (k < 0 || t.stops.length - k < 2) continue;
+      const route = routes.get(t.route);
+      const sIdx = t.stops.slice(k).map((s) => idx.get(s));
+      sIdx.forEach((i) => modes[i].add(route.mode));
+      trips.push({ route: route.name, mode: route.mode, stops: sIdx, times: t.times.slice(k).map((x) => x - 86400), carry: true });
     }
     const net = {
       version: 1,

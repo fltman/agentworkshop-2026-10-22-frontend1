@@ -56,6 +56,85 @@
     return { common: rows.length, best: rows[0] || null, top: rows.slice(0, limit) };
   }
 
+  // Best place to live: stations that reach EVERY pin in time. Pass one answer per pin (e.g. arrive-by from each workplace).
+  // Ranked by the longest of the journeys ('max', default) or their sum ('sum'); `minutes` lists each pin's time.
+  function commonAll(fcs, stops, opts) {
+    var by = (opts && opts.by) || 'max';
+    var limit = (opts && opts.limit) || 10;
+    var rows = [];
+    stops.forEach(function (s) {
+      var minutes = [];
+      for (var i = 0; i < fcs.length; i++) {
+        var m = stopMinutes(fcs[i], s);
+        if (m === null) return;
+        minutes.push(m);
+      }
+      var max = Math.max.apply(null, minutes);
+      var sum = minutes.reduce(function (a, b) { return a + b; }, 0);
+      rows.push({ index: s.index, name: s.name, lat: s.lat, lon: s.lon, modes: s.modes, minutes: minutes, max: max, sum: sum });
+    });
+    rows.sort(function (x, y) { return x[by] - y[by] || x.sum - y.sum; });
+    return { common: rows.length, best: rows[0] || null, top: rows.slice(0, limit) };
+  }
+
+  var RELAX = [
+    { key: 'transfer', label: { en: '+1 transfer', sv: '+1 byte' }, patch: function (b) { return { maxTransfers: (b.maxTransfers || 3) + 1 }; } },
+    { key: 'wait', label: { en: '+5 min waiting', sv: '+5 min väntetid' }, patch: function (b) { return { maxWaitMinutes: (b.maxWaitMinutes || 7) + 5 }; } },
+    {
+      key: 'walk', label: { en: '+5 min walking', sv: '+5 min gångtid' },
+      patch: function (b) {
+        var w = b.walking || {};
+        return { walking: Object.assign({}, w, { accessMinutes: (w.accessMinutes || 10) + 5, egressMinutes: (w.egressMinutes || 10) + 5, transferMinutes: (w.transferMinutes || 5) + 5 }) };
+      },
+    },
+  ];
+
+  // "Why not here?": reruns with one limit relaxed at a time and counts the stations each relaxation unlocks.
+  // Returns { base, unlocks: [{ key, label, newStations, stations }] }, biggest unlock first: the binding constraint.
+  function unlock(iso, body, stops) {
+    var jobs = [iso(body)].concat(RELAX.map(function (r) { return iso(Object.assign({}, body, r.patch(body))); }));
+    return Promise.all(jobs).then(function (fcs) {
+      var base = new Set();
+      stops.forEach(function (s) { if (stopMinutes(fcs[0], s) !== null) base.add(s.index); });
+      var unlocks = RELAX.map(function (r, i) {
+        var added = stops.filter(function (s) { return !base.has(s.index) && stopMinutes(fcs[i + 1], s) !== null; });
+        return { key: r.key, label: r.label, newStations: added.length, stations: added };
+      });
+      unlocks.sort(function (a, b) { return b.newStations - a.newStations; });
+      return { base: base.size, unlocks: unlocks };
+    });
+  }
+
+  // Return trip: places you can reach going out AND get back from before a deadline. Two engine calls (forward from `start`,
+  // arrive-by at `returnBy`), intersected by station. `stranded` = reachable going out but no way back in time; `tooTight` =
+  // both directions exist but out + back + stayMinutes does not fit in the window (times are band upper bounds, so conservative).
+  //   VijayCompare.roundTrip(iso, body, stops, { start: '21:00', returnBy: '23:30' })
+  function roundTrip(iso, body, stops, opts) {
+    var o = opts || {};
+    var toMin = function (t) { var p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
+    var window = (toMin(o.returnBy) - toMin(o.start) + 1440) % 1440;
+    var stay = o.stayMinutes || 0;
+    var out = Object.assign({}, body, { startTime: o.start });
+    var back = Object.assign({}, body, { startTime: o.returnBy, arriveBy: true });
+    return Promise.all([iso(out), iso(back)]).then(function (res) {
+      var both = [];
+      var stranded = [];
+      var tooTight = [];
+      stops.forEach(function (s) {
+        var a = stopMinutes(res[0], s);
+        if (a === null) return;
+        var b = stopMinutes(res[1], s);
+        var row = { index: s.index, name: s.name, lat: s.lat, lon: s.lon, minutesOut: a, minutesBack: b };
+        if (b === null) stranded.push(row);
+        else if (a + b + stay > window) tooTight.push(row);
+        else both.push(row);
+      });
+      both.sort(function (x, y) { return x.minutesOut + x.minutesBack - (y.minutesOut + y.minutesBack); });
+      var total = both.length + stranded.length + tooTight.length;
+      return { both: both, stranded: stranded, tooTight: tooTight, outbound: total, windowMinutes: window, canReturnShare: both.length / Math.max(total, 1) };
+    });
+  }
+
   function hhmmAdd(start, minutes) {
     var p = start.split(':');
     var t = (Number(p[0]) * 60 + Number(p[1]) + minutes) % 1440;
@@ -88,7 +167,7 @@
     };
   }
 
-  var api = { stopMinutes: stopMinutes, meeting: meeting, sample: sample, reliability: reliability };
+  var api = { roundTrip: roundTrip, inFeature: inFeature, stopMinutes: stopMinutes, meeting: meeting, commonAll: commonAll, unlock: unlock, sample: sample, reliability: reliability };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else window.VijayCompare = api;
 })();

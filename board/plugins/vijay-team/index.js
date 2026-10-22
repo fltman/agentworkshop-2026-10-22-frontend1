@@ -5,6 +5,7 @@ const zlib = require('zlib');
 const DATA = path.join(__dirname, 'artifacts');
 const DAY_TYPES = ['weekday', 'saturday', 'sunday'];
 const cache = {};
+const fragCache = {};
 const conns = {};
 let shapes = null;
 
@@ -180,6 +181,32 @@ module.exports = {
         if (n) out.push({ index: s, departures: n, avgHeadwayMin: Math.round(((to - from) / 60 / n) * 10) / 10 });
       }
       return json(res, 200, { day: type, from: hhmm(from), to: hhmm(to), stops: out });
+    }
+    if (p === 'fragility') {
+      // Single-line dependence: stations whose whole service is one route, so one disruption cuts them off.
+      const type = dayTypeOf(q);
+      const { net } = load(type);
+      if (!fragCache[type]) {
+        const per = net.stops.map(() => new Map());
+        for (const t of net.trips) {
+          const key = t.mode + '|' + t.route;
+          for (let i = 0; i < t.stops.length - 1; i++) per[t.stops[i]].set(key, (per[t.stops[i]].get(key) || 0) + 1);
+        }
+        const rows = [];
+        per.forEach((m, index) => {
+          if (!m.size) return;
+          let total = 0, top = 0, topRoute = '';
+          for (const [k, n] of m) { total += n; if (n > top) { top = n; topRoute = k; } }
+          const [mode, ...nm] = topRoute.split('|');
+          rows.push({ index, routes: m.size, departures: total, topShare: Math.round((top / total) * 100) / 100, topRoute: nm.join('|'), topMode: mode, singleLine: m.size === 1 });
+        });
+        fragCache[type] = rows;
+      }
+      const rows = fragCache[type];
+      const maxShare = q.get('minTopShare') ? Number(q.get('minTopShare')) : 0;
+      if (!Number.isFinite(maxShare)) return json(res, 400, { error: 'minTopShare must be a number' });
+      const stops = rows.filter((r) => r.topShare >= maxShare);
+      return json(res, 200, { day: type, stations: rows.length, singleLine: rows.filter((r) => r.singleLine).length, stops });
     }
     if (p === 'routes') {
       const { routes } = loadShapes();
