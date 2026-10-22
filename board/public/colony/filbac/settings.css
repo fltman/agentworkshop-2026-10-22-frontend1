@@ -1,0 +1,23 @@
+.iso-settings { font: 16px/1.4 system-ui, sans-serif; display: flex; flex-direction: column; gap: 14px; padding: 16px; box-sizing: border-box; max-width: 420px; color: #1b1f24; background: #fff; }
+.iso-head { display: flex; justify-content: space-between; align-items: center; }
+.iso-head h2 { margin: 0; font-size: 20px; }
+.iso-settings select, .iso-settings input[type=datetime-local] { font: inherit; min-height: 44px; padding: 0 8px; border: 1px solid #c7ccd1; border-radius: 8px; background: #fff; }
+.iso-row { display: flex; flex-direction: column; gap: 6px; }
+.iso-label { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.iso-label output { font-weight: 400; color: #555; }
+.iso-settings input[type=range] { width: 100%; min-height: 32px; accent-color: #0b6bcb; }
+.iso-inline { display: flex; gap: 8px; }
+.iso-inline input { flex: 1; min-width: 0; }
+.iso-origin { font-size: 14px; }
+.iso-modes { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.iso-modes legend { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding: 0; }
+.iso-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 12px; border: 1px solid #c7ccd1; border-radius: 22px; cursor: pointer; }
+.iso-chip:has(input:checked) { background: #e6f0fb; border-color: #0b6bcb; }
+.iso-chip input { width: 18px; height: 18px; accent-color: #0b6bcb; }
+.iso-secondary { min-height: 44px; padding: 0 14px; border: 1px solid #c7ccd1; border-radius: 8px; background: #f6f8fa; font: inherit; cursor: pointer; }
+.iso-update { min-height: 48px; border: 0; border-radius: 10px; background: #0b6bcb; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+.iso-update:disabled { opacity: .6; cursor: progress; }
+.iso-msg { color: #b42318; min-height: 1.4em; font-size: 14px; }
+.iso-legend { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; }
+.iso-swatch { display: inline-flex; align-items: center; gap: 4px; }
+.iso-swatch i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
