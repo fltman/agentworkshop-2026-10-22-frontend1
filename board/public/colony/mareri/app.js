@@ -3,6 +3,7 @@
 
   var ENGINE_URL = '/t/mareri/isochrone';          // street-based walking
   var FALLBACK_ENGINE_URL = '/t/marlin/isochrone'; // straight-line walking
+  var WALK_ENGINE_URL = '/t/filbac/api/isochrone'; // walking-only areas (no transport types)
   var TIMEOUT_MS = 20000;
   var MODES = ['bus', 'metro', 'tram', 'train', 'commuter_rail', 'boat'];
   var STOCKHOLM = [59.3293, 18.0686];
@@ -306,8 +307,6 @@
   function readSettings() {
     var modes = Array.prototype.slice.call(modesBox.querySelectorAll('input:checked'))
       .map(function (cb) { return cb.value; });
-    if (!modes.length) throw new Error(t('err.noModes'));
-
     var start = new Date($('start-time').value);
     if (isNaN(start.getTime())) throw new Error(t('err.badTime'));
 
@@ -390,6 +389,7 @@
     var timer = setTimeout(function () { ctrl.abort(); }, TIMEOUT_MS);
     try {
       try {
+        if (!body.modes.length) return await postEngine(WALK_ENGINE_URL, body, ctrl);
         return await postEngine(ENGINE_URL, body, ctrl);
       } catch (e) {
         if (e.name === 'AbortError' || !streetEngineDown(e)) throw e;
@@ -626,7 +626,7 @@
         setStatus(t('done', { s: ((performance.now() - started) / 1000).toFixed(1) }));
         setJourneyBody(fc && fc.meta && fc.meta.walkingModel === 'street' ? body : null);
         if (fc && fc.meta && fc.meta.walkingModel === 'street') markStreetWalk();
-        else loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
+        else if (!(fc && fc.meta && fc.meta.walkOnly)) loadWalkArea(pin.getLatLng(), body.walking.accessMinutes);
         if (window.matchMedia('(max-width: 700px)').matches) {
           panel.classList.add('collapsed');
           toggle.setAttribute('aria-expanded', 'false');
