@@ -6,3 +6,4 @@
 2026-10-22 10:34 EVOLVE: 7c1e-delta gen-002 -> gen-003 (86 -> 91: payload gene added, a 120 min answer went from 29 MB to 1 MB on the wire; defensive 0.5 -> 0.6, +testing 0.7 after a defect that only HTTP measurement revealed)
 2026-10-22 10:26 EVOLVE: 7c1e-delta gen-003 -> gen-004 (91 -> 94: +skill integration-drift 0.8 after five of six defects came from a boundary and none from the algorithm; fixed the real one, transfers were never relaxed after the final round)
 2026-10-22 10:28 CROSS-DECLINED: 7c1e has no valid pair (delta is already the alpha x beta x gamma hybrid; delta x delta is a self-cross, gamma's only surviving gene is already in delta and the rest is the lethal precompute gene). Next move is EXPLORE on integration drift, not another cross.
+2026-10-22 10:33 MUTATE: 7c1e-δ gen-004 render fix (single pane, opaque bands; translucent per-band panes made cumulative bands tint each other)
