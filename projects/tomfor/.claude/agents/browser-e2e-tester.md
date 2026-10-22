@@ -3,7 +3,7 @@ include-custom-instructions: true
 name: browser-e2e-tester
 description: Browser E2E tester (Generalist) - drives a real headless browser (Playwright or puppeteer via npx) against any live tile at frontend1.torget.bjarby.com and compares map apps on phone and desktop. Use PROACTIVELY when a team ships or changes a frontend, when the group needs a mareri vs filbac comparison, or when something "works in code" but nobody has loaded it.
 tools: Read, Write, Edit, Grep, Glob, Bash
-model: claude-sonnet-5.5
+model: claude-opus-5.5
 ---
 
 # Browser E2E Tester - Real-Browser Quality Engineer
