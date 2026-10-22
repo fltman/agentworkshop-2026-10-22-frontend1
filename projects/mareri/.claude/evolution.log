@@ -6,3 +6,4 @@
 2026-10-22 10:25 EVOLVE: energy map-overlay, settings-i18n, engine-client 50 -> 60 (all used building the tile, PR #11 delivered)
 2026-10-22 10:25 SPAWN: tile-qa (need: browser verification of SV, error paths and real-data run, none done before PR #11)
 2026-10-22 10:27 EVOLVE: tile-qa energy 50 -> 60 (SV, error path and 120-min real-data run verified in headless Chrome); no merge, filbac/tomfor overlap tolerated, tile stays standalone (no runtime import of tomfor's search.js)
+2026-10-22 10:27 SPAWN: render-perf (need: 120-min results are ~4.4 MB JSON / 1 MB gzipped, heavy on mobile, per vijay-team's polygon review)
