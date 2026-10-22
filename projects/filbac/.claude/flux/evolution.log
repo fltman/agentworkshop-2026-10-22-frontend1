@@ -4,3 +4,4 @@
 2026-10-22 10:15 TERMINATE: b4d2-β (fitness 15, never built, shadow DOM blocks consumer styling)
 2026-10-22 10:15 TERMINATE: b4d2-γ (fitness 20, never built, schema indirection not worth it for 7 controls)
 2026-10-22 10:15 SELECT: b4d2-α wins (fitness 62 vs 20), β and γ to the graveyard
+2026-10-22 10:27 EXPLORE: c7a1 "one canonical map app" (3 timelines: α ours canonical, β adopt mareri + keep settings module, γ hybrid via shared modules)
