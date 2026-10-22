@@ -649,5 +649,39 @@
     }).catch(function () { /* the Update call reports engine problems */ });
   }
 
+  // ---- Share link: pin and settings live in the URL hash ----
+  var HASH_FIELDS = { t: 'max-travel', w: 'max-wait', x: 'max-transfers', d: 'walk-dest', r: 'walk-transfer' };
+  function writeHash() {
+    var p = pin.getLatLng();
+    var h = new URLSearchParams();
+    h.set('ll', p.lat.toFixed(5) + ',' + p.lng.toFixed(5));
+    Object.keys(HASH_FIELDS).forEach(function (k) { h.set(k, $(HASH_FIELDS[k]).value); });
+    h.set('m', Array.prototype.slice.call(modesBox.querySelectorAll('input:checked'))
+      .map(function (cb) { return cb.value; }).join(','));
+    history.replaceState(null, '', '#' + h.toString());
+  }
+  function readHash() {
+    if (location.hash.length < 2) return false;
+    var h = new URLSearchParams(location.hash.slice(1));
+    var ll = (h.get('ll') || '').split(',').map(Number);
+    if (ll.length !== 2 || ll.some(isNaN) || Math.abs(ll[0]) > 90 || Math.abs(ll[1]) > 180) return false;
+    pin.setLatLng(ll);
+    map.setView(ll, 12);
+    showOrigin();
+    Object.keys(HASH_FIELDS).forEach(function (k) {
+      var v = parseInt(h.get(k), 10);
+      if (!isNaN(v)) $(HASH_FIELDS[k]).value = v;
+    });
+    if (h.has('m')) {
+      var on = h.get('m').split(',');
+      modesBox.querySelectorAll('input').forEach(function (cb) { cb.checked = on.indexOf(cb.value) !== -1; });
+    }
+    syncTravel();
+    return true;
+  }
+  $('form').addEventListener('submit', writeHash);
+  var fromHash = readHash();
+
   applyLang();
+  if (fromHash) $('form').requestSubmit();
 })();
